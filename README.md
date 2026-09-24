@@ -2,7 +2,7 @@
 
 用鼠标或手写笔在纸上书写。停笔片刻后，墨迹渗入纸中，页面思考，再以手写笔迹浮现回答。
 
-灵感来自 [riddle](https://github.com/MaximeRivest/riddle)，面向 Web，技术栈为 Next.js；模型走阿里云百炼（DashScope）OpenAI 兼容接口。
+灵感来自 [riddle](https://github.com/MaximeRivest/riddle)，面向 Web，技术栈为 Next.js；模型走 OpenAI 兼容接口。
 
 ## 功能
 
@@ -21,7 +21,7 @@
 
 ```bash
 cp .env.example .env.local
-# 编辑 .env.local，填入百炼 API Key
+# 编辑 .env.local，填入模型 API Key 与 Endpoint
 npm install
 npm run dev
 ```
@@ -34,17 +34,15 @@ npm run dev
 
 | 变量 | 说明 | 默认 |
 |------|------|------|
-| `DASHSCOPE_API_KEY` | 服务端默认 API Key（用户未自备时使用） | — |
-| `DASHSCOPE_BASE_URL` | 兼容模式 Base URL | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| `DASHSCOPE_MODEL` | 视觉模型 | `qwen-vl-plus` |
+| `MODEL_API_KEY` | 服务端默认 API Key（用户未自备时使用） | — |
+| `MODEL_BASE_URL` | OpenAI 兼容接口 Base URL | — |
+| `MODEL_NAME` | 视觉模型名称 | — |
 
 正式构建（`next start` / 生产部署）下，用户若未在设定中填写自己的 API Key，每天仅可免费问答 2 次；超出后需自行配置 Key。开发模式（`next dev`）不限次。
 
 用户数据（设定、自备凭据、历史、配额）保存在浏览器 IndexedDB，不再使用 localStorage。
 
-控制台：[阿里云百炼](https://bailian.console.aliyun.com/)
-
-推荐使用支持识图的模型，例如 `qwen3-vl-plus`、`qwen-vl-max`、`qwen-vl-plus`。
+请使用支持识图的视觉模型。
 
 ## 使用
 

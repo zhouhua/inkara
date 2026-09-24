@@ -46,12 +46,16 @@ export async function POST(req: Request) {
 
   const userApiKey =
     typeof body.apiKey === "string" ? body.apiKey.trim() : "";
-  const apiKey = userApiKey || process.env.DASHSCOPE_API_KEY || "";
+  const apiKey =
+    userApiKey ||
+    process.env.MODEL_API_KEY ||
+    process.env.DASHSCOPE_API_KEY ||
+    "";
   if (!apiKey) {
     return jsonError(
       {
         error: "missing_api_key",
-        message: "DASHSCOPE_API_KEY is not configured",
+        message: "MODEL_API_KEY is not configured",
       },
       500
     );
@@ -66,13 +70,35 @@ export async function POST(req: Request) {
     typeof body.baseUrl === "string" ? body.baseUrl.trim() : "";
   const baseUrl = (
     userBaseUrl ||
+    process.env.MODEL_BASE_URL ||
     process.env.DASHSCOPE_BASE_URL ||
-    "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    ""
   ).replace(/\/$/, "");
+  if (!baseUrl) {
+    return jsonError(
+      {
+        error: "missing_base_url",
+        message: "MODEL_BASE_URL is not configured",
+      },
+      500
+    );
+  }
 
   const userModel = typeof body.model === "string" ? body.model.trim() : "";
   const model =
-    userModel || process.env.DASHSCOPE_MODEL || "qwen3-vl-plus";
+    userModel ||
+    process.env.MODEL_NAME ||
+    process.env.DASHSCOPE_MODEL ||
+    "";
+  if (!model) {
+    return jsonError(
+      {
+        error: "missing_model",
+        message: "MODEL_NAME is not configured",
+      },
+      500
+    );
+  }
 
   const imageUrl = body.image.startsWith("data:")
     ? body.image
@@ -122,7 +148,7 @@ export async function POST(req: Request) {
 
   if (!upstream.ok) {
     const errText = await upstream.text();
-    console.error("DashScope error:", upstream.status, errText);
+    console.error("Upstream model error:", upstream.status, errText);
     return jsonError(
       {
         error: "upstream_error",
