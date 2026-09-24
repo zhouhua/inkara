@@ -33,7 +33,7 @@ export async function fadeInkIntoPaper(
     return;
   }
 
-  const duration = 1400;
+  const duration = 1200;
   const start = performance.now();
   const drift = Math.max(4, canvas.height * 0.012);
 
@@ -48,7 +48,7 @@ export async function fadeInkIntoPaper(
       const alpha = 1 - e;
       const y = drift * e;
       // Soft “bleed” blur grows as ink sinks
-      const blur = 0.4 + e * 2.2;
+      const blur = 0.25 + e * 1.2;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.save();
@@ -187,6 +187,29 @@ export function charRevealDelay(ch: string, reduced: boolean): number {
   if (/[，。！？、；：,.!?;:]/.test(ch)) return 90;
   if (/[—…·]/.test(ch)) return 70;
   return 22 + Math.floor(Math.random() * 14);
+}
+
+/** Opacity fade for a full reply block (reduced-motion path). */
+export async function fadeInReplyBlock(opts: {
+  durationMs?: number;
+  signal?: { cancelled: boolean };
+  paint: (alpha: number) => void;
+}): Promise<void> {
+  const duration = opts.durationMs ?? 180;
+  const start = performance.now();
+  await new Promise<void>((resolve) => {
+    const tick = (now: number) => {
+      if (opts.signal?.cancelled) {
+        resolve();
+        return;
+      }
+      const p = Math.min(1, (now - start) / duration);
+      opts.paint(easeOutQuad(p));
+      if (p < 1) requestAnimationFrame(tick);
+      else resolve();
+    };
+    requestAnimationFrame(tick);
+  });
 }
 
 export function sleep(ms: number) {
