@@ -6,8 +6,8 @@
 | 编号 | 文档 | 主题 | 状态 | 建议工期（MVP） |
 |------|------|------|------|-----------------|
 | PRD-01 | [2026-09-24-01-first-run-hint.md](./2026-09-24-01-first-run-hint.md) | 首次书写提示 | **Accepted / 已实现** | 0.5–1 天 |
-| PRD-02 | [2026-09-24-02-reply-tone.md](./2026-09-24-02-reply-tone.md) | 回复语气微调 | **Cancelled**（不做） | — |
-| PRD-03 | [2026-09-24-03-history-recall.md](./2026-09-24-03-history-recall.md) | 旧页沉淀与回顾 | Draft | 1.5–2 天 |
+| PRD-02 | [2026-09-24-02-reply-tone.md](./2026-09-24-02-reply-tone.md) | 回复语气微调 | **Cancelled** | — |
+| PRD-03 | [2026-09-24-03-history-recall.md](./2026-09-24-03-history-recall.md) | 旧页与续写会话 | **Accepted** | 3–5 天 |
 | PRD-04 | [2026-09-24-04-ink-feel.md](./2026-09-24-04-ink-feel.md) | 书写与浮现手感 | Draft | 2–3 天 |
 | PRD-05 | [2026-09-24-05-quota-byok.md](./2026-09-24-05-quota-byok.md) | 配额与自备 Key 体验 | Draft | 1–1.5 天 |
 
