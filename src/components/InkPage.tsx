@@ -30,6 +30,7 @@ import { t, type MessageKey } from "@/lib/i18n";
 import {
   charRevealDelay,
   drawInkChar,
+  fadeInReplyBlock,
   fadeInkIntoPaper,
   layoutReplyChars,
   prefersReducedMotion,
@@ -87,6 +88,8 @@ type Phase =
 const INK = "#1c2233";
 const REPLY_INK = "#2a3145";
 const DOUBLE_TAP_MS = 380;
+const DOUBLE_TAP_MAX_MOVE_CSS = 10;
+const DOUBLE_TAP_MAX_DURATION_MS = 250;
 
 const SSR_SETTINGS: AppSettings = { ...defaultSettings };
 
@@ -111,11 +114,19 @@ export function InkPage() {
   const animSignalRef = useRef<{ cancelled: boolean }>({ cancelled: false });
   const recallingRef = useRef(false);
   const lastTapAtRef = useRef(0);
+  const lastTapArmedRef = useRef(false);
+  const pointerDownRef = useRef<{
+    x: number;
+    y: number;
+    t: number;
+  } | null>(null);
   const lastCommitRef = useRef<{
     image: string;
     typedSnapshot: string;
   } | null>(null);
   const commitFnRef = useRef<() => Promise<void>>(async () => {});
+  const liveReplyRef = useRef("");
+  const streamDoneRef = useRef(false);
 
   const [phase, setPhase] = useState<Phase>("ready");
   const [inputMode, setInputMode] = useState<InputMode>("pen");
@@ -136,6 +147,9 @@ export function InkPage() {
   );
   const [paperErrorAction, setPaperErrorAction] =
     useState<PaperErrorAction | null>(null);
+  const [continueMotion, setContinueMotion] = useState(false);
+  const [replyRising, setReplyRising] = useState(false);
+  const [vvOffset, setVvOffset] = useState(0);
 
   const setPhaseBoth = useCallback((p: Phase) => {
     phaseRef.current = p;
@@ -183,7 +197,7 @@ export function InkPage() {
     if (!wrap || !ink || !reply) return;
 
     const rect = wrap.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
     dprRef.current = dpr;
 
     for (const c of [ink, reply]) {
@@ -205,6 +219,25 @@ export function InkPage() {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [resizeCanvases]);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const sync = () => {
+      const overlap = Math.max(
+        0,
+        window.innerHeight - vv.height - vv.offsetTop
+      );
+      setVvOffset(overlap);
+    };
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
+    sync();
+    return () => {
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+    };
+  }, []);
 
   const clearIdle = useCallback(() => {
     if (idleTimerRef.current) {
@@ -482,28 +515,71 @@ export function InkPage() {
   );
 
   /** Hand-ink glyph reveal — skeleton thinning is unusable on CJK brush fonts. */
-  const animateAnswer = useCallback(
-    async (text: string, signal: { cancelled: boolean }) => {
-      if (!text.trim()) return;
+  const revealAnswerLive = useCallback(
+    async (
+      getText: () => string,
+      isDone: () => boolean,
+      signal: { cancelled: boolean }
+    ) => {
       const reduced = prefersReducedMotion();
-      const prep0 = prepareReplyCtx();
-      if (!prep0) return;
-      prep0.ctx.clearRect(0, 0, prep0.canvas.width, prep0.canvas.height);
+      if (reduced) {
+        while (!isDone() && !signal.cancelled) {
+          await sleep(32);
+        }
+        if (signal.cancelled) return;
+        const text = getText();
+        if (!text.trim()) return;
+        const prep0 = prepareReplyCtx();
+        if (!prep0) return;
+        const dpr0 = prep0.dpr;
+        const quoteCssH = readAsText
+          ? Math.min(72, 18 + Math.ceil(readAsText.length / 28) * 22)
+          : 0;
+        const gapCss = 12;
+        const reserveAbove = readAsText ? (quoteCssH + gapCss) * dpr0 : 0;
 
-      const dpr0 = prep0.dpr;
-      // Keep quote + reply as one centered stack with a tight gap
-      const quoteCssH = readAsText
-        ? Math.min(72, 18 + Math.ceil(readAsText.length / 28) * 22)
-        : 0;
-      const gapCss = 12;
-      const reserveAbove = readAsText
-        ? (quoteCssH + gapCss) * dpr0
-        : 0;
+        await fadeInReplyBlock({
+          durationMs: 180,
+          signal,
+          paint: (alpha) => {
+            const prep = prepareReplyCtx();
+            if (!prep) return;
+            const { canvas, ctx, dpr, padX, padY, maxWidth, lineHeight } = prep;
+            const chars = layoutReplyChars(ctx, text, {
+              padX,
+              padY,
+              maxWidth,
+              lineHeight,
+              canvasHeight: canvas.height,
+              align: "center",
+              reserveAbove,
+            });
+            if (chars.length > 0 && readAsText) {
+              setReadAsTopPx(quoteTopCssPx(chars[0].y, dpr, quoteCssH, gapCss));
+            }
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            for (const { ch, x, y } of chars) {
+              drawInkChar(ctx, ch, x, y, dpr, 1);
+            }
+            ctx.restore();
+          },
+        });
+        return;
+      }
 
-      const layoutOnce = () => {
+      let painted = 0;
+      while (!signal.cancelled) {
+        const text = getText();
         const prep = prepareReplyCtx();
-        if (!prep) return null;
+        if (!prep) return;
         const { canvas, ctx, dpr, padX, padY, maxWidth, lineHeight } = prep;
+        const quoteCssH = readAsText
+          ? Math.min(72, 18 + Math.ceil(readAsText.length / 28) * 22)
+          : 0;
+        const gapCss = 12;
+        const reserveAbove = readAsText ? (quoteCssH + gapCss) * dpr : 0;
         const chars = layoutReplyChars(ctx, text, {
           padX,
           padY,
@@ -516,28 +592,11 @@ export function InkPage() {
         if (chars.length > 0 && readAsText) {
           setReadAsTopPx(quoteTopCssPx(chars[0].y, dpr, quoteCssH, gapCss));
         }
-        return { canvas, ctx, dpr, chars };
-      };
 
-      const first = layoutOnce();
-      if (!first) return;
-
-      let painted = 0;
-
-      while (painted < first.chars.length) {
-        if (signal.cancelled) return;
-        const frame = layoutOnce();
-        if (!frame) return;
-        const { canvas, ctx, dpr, chars } = frame;
-
-        if (painted >= chars.length) break;
-
-        if (reduced) {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          for (const { ch, x, y } of chars) {
-            drawInkChar(ctx, ch, x, y, dpr, 1);
-          }
-          return;
+        if (painted >= chars.length) {
+          if (isDone()) break;
+          await sleep(32);
+          continue;
         }
 
         const i = painted;
@@ -552,7 +611,7 @@ export function InkPage() {
           await sleep(18);
         }
         painted = i + 1;
-        await sleep(charRevealDelay(ch, reduced));
+        await sleep(charRevealDelay(ch, false));
       }
     },
     [prepareReplyCtx, readAsText]
@@ -581,6 +640,22 @@ export function InkPage() {
       abortRef.current = controller;
 
       let buffered = "";
+      liveReplyRef.current = "";
+      streamDoneRef.current = false;
+      const reveal = { promise: null as Promise<void> | null };
+      let revealStarted = false;
+      const revealCancel = { cancelled: false };
+
+      const startRevealIfNeeded = () => {
+        if (revealStarted || !liveReplyRef.current) return;
+        revealStarted = true;
+        setPhaseBoth("answering");
+        reveal.promise = revealAnswerLive(
+          () => liveReplyRef.current,
+          () => streamDoneRef.current,
+          revealCancel
+        );
+      };
 
       try {
         if (!navigator.onLine) {
@@ -616,6 +691,8 @@ export function InkPage() {
           {
             onDelta: (text) => {
               buffered += text;
+              liveReplyRef.current += text;
+              startRevealIfNeeded();
             },
             onMeta: (transcription) => {
               if (
@@ -631,6 +708,8 @@ export function InkPage() {
         );
 
         if (animSignal.cancelled || controller.signal.aborted) {
+          revealCancel.cancelled = true;
+          if (reveal.promise) await reveal.promise;
           resetToReady();
           return;
         }
@@ -641,7 +720,8 @@ export function InkPage() {
 
         const transcription =
           result.transcription || typedSnapshot || "";
-        const finalReply = result.reply || buffered;
+        liveReplyRef.current = result.reply || liveReplyRef.current || buffered;
+        const finalReply = liveReplyRef.current;
         const isRecall =
           result.intent === "recall" || looksLikeRecall(transcription);
 
@@ -655,6 +735,9 @@ export function InkPage() {
         }
 
         if (isRecall) {
+          revealCancel.cancelled = true;
+          if (reveal.promise) await reveal.promise;
+          clearReplyLayer();
           const query =
             result.recallQuery ||
             extractRecallNeedle(transcription) ||
@@ -689,10 +772,22 @@ export function InkPage() {
           return;
         }
 
-        setPhaseBoth("answering");
-        clearReplyLayer();
-        await animateAnswer(finalReply, animSignal);
-        if (animSignal.cancelled) {
+        streamDoneRef.current = true;
+        if (!revealStarted && finalReply.trim()) {
+          startRevealIfNeeded();
+        }
+        if (reveal.promise) {
+          await reveal.promise;
+        } else if (finalReply.trim()) {
+          setPhaseBoth("answering");
+          await revealAnswerLive(
+            () => finalReply,
+            () => true,
+            revealCancel
+          );
+        }
+
+        if (animSignal.cancelled || revealCancel.cancelled) {
           resetToReady();
           return;
         }
@@ -729,10 +824,10 @@ export function InkPage() {
       }
     },
     [
-      animateAnswer,
       animateRecallPage,
       clearReplyLayer,
       resetToReady,
+      revealAnswerLive,
       setPhaseBoth,
       showReadAsQuote,
       showPaperError,
@@ -909,15 +1004,24 @@ export function InkPage() {
       return;
     }
 
+    pointerDownRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      t: performance.now(),
+    };
+
     const now = performance.now();
     const isDouble =
+      lastTapArmedRef.current &&
       now - lastTapAtRef.current < DOUBLE_TAP_MS &&
       (phaseRef.current === "writing" || phaseRef.current === "ready") &&
-      hasContent();
-    lastTapAtRef.current = now;
+      hasContent() &&
+      !currentRef.current;
 
     if (isDouble) {
       lastTapAtRef.current = 0;
+      lastTapArmedRef.current = false;
+      pointerDownRef.current = null;
       clearIdle();
       void commitPage();
       return;
@@ -939,14 +1043,13 @@ export function InkPage() {
       erase: false,
     };
     currentRef.current = stroke;
-    strokesRef.current.push(stroke);
+    strokesRef.current = [...strokesRef.current, stroke];
+    lastTapArmedRef.current = false;
 
     const ctx = getInkCtx();
     if (ctx) drawStroke(ctx, stroke, dprRef.current);
-
     setPhaseBoth("writing");
-    clearIdle();
-    setStatusExtra(null);
+    scheduleIdle();
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -969,12 +1072,35 @@ export function InkPage() {
 
   const onPointerUp = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (inputMode !== "pen") return;
+
+    const down = pointerDownRef.current;
+    pointerDownRef.current = null;
+    const stroke = currentRef.current;
     currentRef.current = null;
     try {
       inkRef.current?.releasePointerCapture(e.pointerId);
     } catch {
       /* ignore */
     }
+
+    if (down) {
+      const dx = e.clientX - down.x;
+      const dy = e.clientY - down.y;
+      const dist = Math.hypot(dx, dy);
+      const dur = performance.now() - down.t;
+      const pointCount = stroke?.points.length ?? 0;
+      const isStationaryTap =
+        dist <= DOUBLE_TAP_MAX_MOVE_CSS &&
+        dur <= DOUBLE_TAP_MAX_DURATION_MS &&
+        pointCount <= 3;
+      if (isStationaryTap) {
+        lastTapAtRef.current = performance.now();
+        lastTapArmedRef.current = true;
+      } else {
+        lastTapArmedRef.current = false;
+      }
+    }
+
     if (
       phaseRef.current === "fading" ||
       phaseRef.current === "thinking" ||
@@ -1097,23 +1223,19 @@ export function InkPage() {
   }, [clearInputOnly, clearReplyLayer]);
 
   const continueWriting = useCallback(() => {
-    const reduced = prefersReducedMotion();
-    const stage = document.querySelector(".reply-stage") as HTMLElement | null;
-    if (reduced || !stage) {
-      setAwaitingContinue(false);
-      setHasDialogueBackground(true);
-      return;
-    }
-    stage.classList.add("is-rising");
-    const done = () => {
-      stage.classList.remove("is-rising");
-      stage.classList.add("is-background");
-      setAwaitingContinue(false);
-      setHasDialogueBackground(true);
-      stage.removeEventListener("transitionend", done);
-    };
-    stage.addEventListener("transitionend", done);
-    window.setTimeout(done, 500);
+    setContinueMotion(true);
+    setReplyRising(false);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setReplyRising(true);
+        window.setTimeout(() => {
+          setReplyRising(false);
+          setContinueMotion(false);
+          setAwaitingContinue(false);
+          setHasDialogueBackground(true);
+        }, 500);
+      });
+    });
   }, []);
 
   const pickRecallCandidate = useCallback(
@@ -1368,6 +1490,8 @@ export function InkPage() {
       <div
         className={[
           "reply-stage",
+          continueMotion ? "is-continue-motion" : "",
+          replyRising ? "is-rising" : "",
           hasDialogueBackground && !awaitingContinue ? "is-background" : "",
           awaitingContinue ? "is-awaiting-continue" : "",
         ]
@@ -1537,7 +1661,16 @@ export function InkPage() {
         </nav>
       </header>
 
-      <div className="status-dock submit-dock">
+      <div
+        className="status-dock submit-dock"
+        style={
+          vvOffset > 0
+            ? ({
+                paddingBottom: `calc(1.1rem + env(safe-area-inset-bottom, 0px) + ${vvOffset}px)`,
+              } as CSSProperties)
+            : undefined
+        }
+      >
         <div className="submit-dock-main">
           {showIdleRing ? (
             <svg

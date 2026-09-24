@@ -154,10 +154,17 @@ select {
     transition: none;
   }
 
-  .reply-stage.is-rising,
-  .reply-stage.is-background {
-    transform: none;
-    opacity: 0.4;
+  /* Exception: Continue rise/fade still animates (PRD-04) */
+  .reply-stage.is-continue-motion {
+    transition:
+      transform 420ms cubic-bezier(0.16, 1, 0.3, 1),
+      opacity 420ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .reply-stage.is-continue-motion.is-rising,
+  .reply-stage.is-continue-motion.is-background {
+    transform: translateY(-12%);
+    opacity: 0.35;
   }
 }
 
@@ -225,7 +232,7 @@ select {
   justify-content: space-between;
   gap: var(--space-md);
   inset-inline: clamp(1rem, 4vw, 2rem);
-  top: clamp(0.75rem, 2vh, 1.25rem);
+  top: calc(clamp(0.75rem, 2vh, 1.25rem) + env(safe-area-inset-top, 0px));
   pointer-events: none;
 }
 
@@ -1245,5 +1252,6 @@ button.history-cal-cell:disabled {
   .settings-sheet,
   .history-panel {
     animation: none;
+    transition: opacity 100ms linear;
   }
 }

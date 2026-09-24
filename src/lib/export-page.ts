@@ -11,7 +11,7 @@ export async function exportPaperPng(opts: {
   const rect = wrap.getBoundingClientRect();
   const w = Math.max(1, Math.floor(rect.width));
   const h = Math.max(1, Math.floor(rect.height));
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
 
   const out = document.createElement("canvas");
   out.width = Math.floor(w * dpr);
