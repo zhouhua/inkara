@@ -2,8 +2,11 @@
 
 import { useId, useState } from "react";
 import { PaperPicker } from "@/components/PaperPicker";
-import { t, type Locale } from "@/lib/i18n";
+import { resolvePaperError } from "@/lib/ask-errors";
+import { validateByokFields } from "@/lib/byok";
+import { t, type Locale, type MessageKey } from "@/lib/i18n";
 import type { PaperStyleId } from "@/lib/paper";
+import { probeConnection } from "@/lib/probe";
 import type {
   AppSettings,
   IdlePace,
@@ -18,6 +21,8 @@ type Props = {
   onClearMemory: () => void;
 };
 
+type ProbeUi = "idle" | "testing" | "ok" | "fail";
+
 export function SettingsPanel({
   open,
   settings,
@@ -27,10 +32,56 @@ export function SettingsPanel({
 }: Props) {
   const titleId = useId();
   const [confirmForget, setConfirmForget] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{
+    apiKey?: string;
+    baseUrl?: string;
+  }>({});
+  const [probeUi, setProbeUi] = useState<ProbeUi>("idle");
+  const [probeMessage, setProbeMessage] = useState("");
 
   const handleClose = () => {
     setConfirmForget(false);
+    setFieldErrors({});
+    setProbeUi("idle");
+    setProbeMessage("");
     onClose();
+  };
+
+  const patchApi = (next: AppSettings) => {
+    setFieldErrors({});
+    setProbeUi("idle");
+    setProbeMessage("");
+    onChange(next);
+  };
+
+  const onTestConnection = async () => {
+    const errors = validateByokFields({
+      apiKey: settings.apiKey,
+      baseUrl: settings.baseUrl,
+    });
+    setFieldErrors(errors);
+    if (errors.apiKey || errors.baseUrl) {
+      setProbeUi("idle");
+      setProbeMessage("");
+      return;
+    }
+
+    setProbeUi("testing");
+    setProbeMessage(t(settings.locale, "probeTesting"));
+    const result = await probeConnection({
+      apiKey: settings.apiKey.trim(),
+      baseUrl: settings.baseUrl.trim() || undefined,
+      model: settings.model.trim() || undefined,
+      locale: settings.locale,
+    });
+    if (result.ok) {
+      setProbeUi("ok");
+      setProbeMessage(t(settings.locale, "probeOk"));
+      return;
+    }
+    const resolved = resolvePaperError({ error: result.error });
+    setProbeUi("fail");
+    setProbeMessage(t(settings.locale, resolved.messageKey as MessageKey));
   };
 
   if (!open) return null;
@@ -104,7 +155,10 @@ export function SettingsPanel({
           <select
             value={settings.showReadAs ? "on" : "off"}
             onChange={(e) =>
-              onChange({ ...settings, showReadAs: e.target.value === "on" })
+              onChange({
+                ...settings,
+                showReadAs: e.target.value === "on",
+              })
             }
           >
             <option value="on">{t(settings.locale, "showReadAsOn")}</option>
@@ -137,9 +191,14 @@ export function SettingsPanel({
               placeholder={t(settings.locale, "apiKeyPlaceholder")}
               value={settings.apiKey}
               onChange={(e) =>
-                onChange({ ...settings, apiKey: e.target.value })
+                patchApi({ ...settings, apiKey: e.target.value })
               }
             />
+            {fieldErrors.apiKey ? (
+              <span className="settings-field-error">
+                {t(settings.locale, fieldErrors.apiKey as MessageKey)}
+              </span>
+            ) : null}
           </label>
 
           <label className="settings-row settings-row-stack">
@@ -151,9 +210,14 @@ export function SettingsPanel({
               placeholder={t(settings.locale, "apiEndpointPlaceholder")}
               value={settings.baseUrl}
               onChange={(e) =>
-                onChange({ ...settings, baseUrl: e.target.value })
+                patchApi({ ...settings, baseUrl: e.target.value })
               }
             />
+            {fieldErrors.baseUrl ? (
+              <span className="settings-field-error">
+                {t(settings.locale, fieldErrors.baseUrl as MessageKey)}
+              </span>
+            ) : null}
           </label>
 
           <label className="settings-row settings-row-stack">
@@ -165,10 +229,34 @@ export function SettingsPanel({
               placeholder={t(settings.locale, "apiModelPlaceholder")}
               value={settings.model}
               onChange={(e) =>
-                onChange({ ...settings, model: e.target.value })
+                patchApi({ ...settings, model: e.target.value })
               }
             />
           </label>
+
+          <div className="settings-probe">
+            <button
+              type="button"
+              className="text-action"
+              onClick={() => void onTestConnection()}
+              disabled={probeUi === "testing"}
+            >
+              {t(settings.locale, "apiTest")}
+            </button>
+            {probeMessage ? (
+              <p
+                className={`settings-probe-result ${
+                  probeUi === "ok"
+                    ? "is-ok"
+                    : probeUi === "fail"
+                      ? "is-fail"
+                      : ""
+                }`}
+              >
+                {probeMessage}
+              </p>
+            ) : null}
+          </div>
         </div>
 
         <div className="settings-actions">
