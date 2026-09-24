@@ -21,6 +21,7 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { askPageStream } from "@/lib/ask-stream";
 import { hydrateDb } from "@/lib/db";
 import { exportPaperPng } from "@/lib/export-page";
+import { firstRunDockHint } from "@/lib/first-run-hint";
 import { t } from "@/lib/i18n";
 import {
   charRevealDelay,
@@ -766,6 +767,15 @@ export function InkPage() {
 
     const typedSnapshot = typedTextRef.current.trim();
     setPhaseBoth("fading");
+    if (!settingsRef.current.hasCommittedOnce) {
+      const next = {
+        ...settingsRef.current,
+        hasCommittedOnce: true,
+      };
+      settingsRef.current = next;
+      setSettings(next);
+      saveSettings(next);
+    }
     setPageToolsVisible(false);
     clearReadAs();
     setStatusExtra(null);
@@ -1195,6 +1205,15 @@ export function InkPage() {
       }
     }
     if (phase !== "ready" && phase !== "writing") return "";
+
+    if (!settings.hasCommittedOnce) {
+      return firstRunDockHint({
+        locale: settings.locale,
+        submitMode: settings.submitMode,
+        inputMode,
+        contentPresent,
+      });
+    }
 
     if (settings.submitMode === "manual") {
       return manualSubmitHint;
