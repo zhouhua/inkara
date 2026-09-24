@@ -149,12 +149,16 @@ export async function POST(req: Request) {
   if (!upstream.ok) {
     const errText = await upstream.text();
     console.error("Upstream model error:", upstream.status, errText);
+    const code =
+      upstream.status === 401 || upstream.status === 403
+        ? "unauthorized"
+        : "upstream_error";
     return jsonError(
       {
-        error: "upstream_error",
-        message: errText.slice(0, 500),
+        error: code,
+        message: code === "unauthorized" ? "unauthorized" : "upstream",
       },
-      502
+      code === "unauthorized" ? 401 : 502
     );
   }
 
