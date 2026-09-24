@@ -51,6 +51,7 @@ import {
   looksLikeRecall,
 } from "@/lib/recall";
 import {
+  defaultSettings,
   hasUserApiKey,
   hydrateSettings,
   idleMsFor,
@@ -81,16 +82,7 @@ const INK = "#1c2233";
 const REPLY_INK = "#2a3145";
 const DOUBLE_TAP_MS = 380;
 
-const SSR_SETTINGS: AppSettings = {
-  locale: "zh",
-  paperStyle: "lines",
-  submitMode: "manual",
-  idlePace: "normal",
-  showReadAs: true,
-  apiKey: "",
-  baseUrl: "",
-  model: "",
-};
+const SSR_SETTINGS: AppSettings = { ...defaultSettings };
 
 export function InkPage() {
   const inkRef = useRef<HTMLCanvasElement>(null);

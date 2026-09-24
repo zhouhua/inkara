@@ -29,6 +29,8 @@ export type AppSettings = {
   baseUrl: string;
   /** User-provided model id; empty uses server default */
   model: string;
+  /** User has entered commit (fading) at least once — dismisses first-run dock copy */
+  hasCommittedOnce: boolean;
 };
 
 export const IDLE_PACE_MS: Record<IdlePace, number> = {
@@ -48,6 +50,7 @@ export const defaultSettings: AppSettings = {
   apiKey: "",
   baseUrl: "",
   model: "",
+  hasCommittedOnce: false,
 };
 
 let settingsCache: AppSettings = { ...defaultSettings };
@@ -114,6 +117,7 @@ export function normalizeSettings(
     apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : "",
     baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl.trim() : "",
     model: typeof parsed.model === "string" ? parsed.model.trim() : "",
+    hasCommittedOnce: parsed.hasCommittedOnce === true,
   };
 }
 
