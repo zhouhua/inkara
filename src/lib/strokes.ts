@@ -25,9 +25,18 @@ export function pointerToPoint(
   return {
     x: (e.clientX - rect.left) * dpr,
     y: (e.clientY - rect.top) * dpr,
-    pressure: e.pressure > 0 ? e.pressure : 0.5,
+    pressure: e.pressure > 0 ? e.pressure : 0,
     t: performance.now(),
   };
+}
+
+/** Normalize pointer pressure: 0 / missing / browser-default 0.5 → mid comfort. */
+export function normalizePressure(raw: number): number {
+  if (!(raw > 0) || raw === 0.5) {
+    return 0.5;
+  }
+  const t = Math.min(1, Math.max(0, (raw - 0.08) / 0.84));
+  return 0.28 + t * 0.72;
 }
 
 export function drawStroke(
@@ -79,10 +88,12 @@ export function drawStroke(
   ctx.restore();
 }
 
-function strokeWidth(pressure: number, dpr: number, erase: boolean) {
-  const base = erase ? 18 : 2.2;
-  const p = Math.min(1, Math.max(0.15, pressure));
-  return (base + p * (erase ? 22 : 3.8)) * dpr;
+export function strokeWidth(pressure: number, dpr: number, erase: boolean) {
+  const p = normalizePressure(pressure);
+  if (erase) return (18 + p * 22) * dpr;
+  const base = 2.4;
+  const span = 3.2;
+  return (base + p * span) * dpr;
 }
 
 export function redrawAll(
