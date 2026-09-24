@@ -18,10 +18,15 @@ import Text from "reicon-react/icons/Text";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { askPageStream } from "@/lib/ask-stream";
+import {
+  resolvePaperError,
+  resolveRecallMissError,
+  type PaperErrorAction,
+} from "@/lib/ask-errors";
 import { hydrateDb } from "@/lib/db";
 import { exportPaperPng } from "@/lib/export-page";
 import { firstRunDockHint } from "@/lib/first-run-hint";
-import { t } from "@/lib/i18n";
+import { t, type MessageKey } from "@/lib/i18n";
 import {
   charRevealDelay,
   drawInkChar,
@@ -129,6 +134,8 @@ export function InkPage() {
   const [recallCandidates, setRecallCandidates] = useState<MemoryPage[] | null>(
     null
   );
+  const [paperErrorAction, setPaperErrorAction] =
+    useState<PaperErrorAction | null>(null);
 
   const setPhaseBoth = useCallback((p: Phase) => {
     phaseRef.current = p;
@@ -225,6 +232,7 @@ export function InkPage() {
   const clearReplyLayer = useCallback(() => {
     const reply = replyRef.current;
     reply?.getContext("2d")?.clearRect(0, 0, reply.width, reply.height);
+    setPaperErrorAction(null);
   }, []);
 
   const clearReadAs = useCallback(() => {
@@ -315,8 +323,6 @@ export function InkPage() {
       const prep = prepareReplyCtx();
       if (!prep) return;
       const { canvas, ctx, padX, padY, maxWidth, lineHeight, fontSize } = prep;
-      const locale = settingsRef.current.locale;
-      const hint = t(locale, "retryHint");
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.save();
@@ -330,46 +336,29 @@ export function InkPage() {
       ctx.textBaseline = "top";
 
       const msgLines = wrapText(ctx, msg, maxWidth);
-      const hintSize = Math.max(18, fontSize * 0.55);
-      ctx.font = `${hintSize}px ${
-        getComputedStyle(document.documentElement)
-          .getPropertyValue("--font-ui-zh")
-          .trim() || "Noto Sans SC"
-      }, sans-serif`;
-      const hintLines = wrapText(ctx, hint, maxWidth);
-
-      const blockHeight =
-        msgLines.length * lineHeight +
-        lineHeight * 0.35 +
-        hintLines.length * hintSize * 1.45;
+      const blockHeight = msgLines.length * lineHeight;
       let y = Math.max(padY, (canvas.height - blockHeight) / 2);
       if (y + blockHeight > canvas.height - padY) {
         y = Math.max(padY, canvas.height - padY - blockHeight);
       }
 
-      ctx.font = `${fontSize}px ${
-        getComputedStyle(document.documentElement)
-          .getPropertyValue("--font-hand-zh")
-          .trim() || "Ma Shan Zheng"
-      }, cursive`;
       for (const line of msgLines) {
         ctx.fillText(line, padX, y);
         y += lineHeight;
       }
-      y += lineHeight * 0.35;
-      ctx.globalAlpha = 0.38;
-      ctx.font = `${hintSize}px ${
-        getComputedStyle(document.documentElement)
-          .getPropertyValue("--font-ui-zh")
-          .trim() || "Noto Sans SC"
-      }, sans-serif`;
-      for (const line of hintLines) {
-        ctx.fillText(line, padX, y);
-        y += hintSize * 1.45;
-      }
       ctx.restore();
     },
     [prepareReplyCtx]
+  );
+
+  const showPaperError = useCallback(
+    (messageKey: MessageKey, action: PaperErrorAction) => {
+      writePaperMessage(t(settingsRef.current.locale, messageKey));
+      setPaperErrorAction(action);
+      setStatusExtra(null);
+      setPhaseBoth("error");
+    },
+    [setPhaseBoth, writePaperMessage]
   );
 
   const animateRecallPage = useCallback(
@@ -672,9 +661,8 @@ export function InkPage() {
             transcription;
           const resolution = resolveRecallHits(query);
           if (resolution.kind === "miss") {
-            writePaperMessage(t(locale, "recallMiss"));
-            setStatusExtra(null);
-            setPhaseBoth("error");
+            const miss = resolveRecallMissError();
+            showPaperError(miss.messageKey as MessageKey, miss.action);
             return;
           }
 
@@ -729,18 +717,11 @@ export function InkPage() {
 
         const err = e as { error?: string; message?: string };
         const offline = typeof navigator !== "undefined" && !navigator.onLine;
-        const msg = offline
-          ? t(locale, "offline")
-          : err.error === "quota_exceeded"
-            ? t(locale, "quotaExceeded")
-            : err.error === "missing_api_key"
-              ? t(locale, "missingKey")
-              : err.message ||
-                (e instanceof Error ? e.message : t(locale, "error"));
-
-        writePaperMessage(msg);
-        setStatusExtra(null);
-        setPhaseBoth("error");
+        const code =
+          err.error ||
+          (e instanceof TypeError ? "request_failed" : undefined);
+        const resolved = resolvePaperError({ error: code, offline });
+        showPaperError(resolved.messageKey as MessageKey, resolved.action);
       } finally {
         if (abortRef.current === controller) {
           abortRef.current = null;
@@ -754,7 +735,7 @@ export function InkPage() {
       resetToReady,
       setPhaseBoth,
       showReadAsQuote,
-      writePaperMessage,
+      showPaperError,
     ]
   );
 
@@ -892,17 +873,30 @@ export function InkPage() {
       setPhaseBoth("ready");
       return true;
     }
-    const p = phaseRef.current;
-    if (p === "error") {
-      void retryLastCommit();
-      return true;
-    }
     return false;
-  }, [recallCandidates, retryLastCommit, setPhaseBoth]);
+  }, [recallCandidates, setPhaseBoth]);
+
+  const onPaperErrorAction = useCallback(() => {
+    const action = paperErrorAction;
+    setPaperErrorAction(null);
+    if (action === "open_settings") {
+      clearReplyLayer();
+      setPhaseBoth("ready");
+      setSettingsOpen(true);
+      return;
+    }
+    if (action === "retry") {
+      void retryLastCommit();
+      return;
+    }
+    clearReplyLayer();
+    setPhaseBoth("ready");
+  }, [clearReplyLayer, paperErrorAction, retryLastCommit, setPhaseBoth]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (handlePaperPointer()) return;
     if (awaitingContinue || recallCandidates) return;
+    if (phaseRef.current === "error") return;
 
     if (inputMode !== "pen") return;
     if (
@@ -1001,6 +995,7 @@ export function InkPage() {
 
   const onTypedChange = (value: string) => {
     if (awaitingContinue || recallCandidates) return;
+    if (phaseRef.current === "error") return;
     if (
       phaseRef.current === "fading" ||
       phaseRef.current === "thinking" ||
@@ -1164,6 +1159,8 @@ export function InkPage() {
     phase === "answering" ||
     phase === "recalling";
 
+  const inputLocked = busy || phase === "error";
+
   const showSessionDock =
     !busy &&
     (awaitingContinue ||
@@ -1179,7 +1176,13 @@ export function InkPage() {
   })();
 
   const onPaperDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (busy || settingsOpen || historyOpen || awaitingContinue || recallCandidates)
+    if (
+      inputLocked ||
+      settingsOpen ||
+      historyOpen ||
+      awaitingContinue ||
+      recallCandidates
+    )
       return;
     const target = e.target as HTMLElement | null;
     if (
@@ -1251,8 +1254,7 @@ export function InkPage() {
     settingsOpen,
   ]);
 
-  const paperInteractive =
-    phase === "error" || recallCandidates != null;
+  const paperInteractive = recallCandidates != null;
 
   const isBusyPhase =
     phase === "fading" ||
@@ -1430,6 +1432,23 @@ export function InkPage() {
         </div>
       ) : null}
 
+      {phase === "error" && paperErrorAction ? (
+        <button
+          type="button"
+          className="paper-error-action text-action"
+          onClick={onPaperErrorAction}
+        >
+          {t(
+            settings.locale,
+            paperErrorAction === "open_settings"
+              ? "actionOpenSettings"
+              : paperErrorAction === "retry"
+                ? "actionRetry"
+                : "actionDismiss"
+          )}
+        </button>
+      ) : null}
+
       <canvas
         ref={inkRef}
         className={`ink-layer ${inputMode === "type" ? "is-passive" : ""}`}
@@ -1446,7 +1465,7 @@ export function InkPage() {
         onChange={(e) => onTypedChange(e.target.value)}
         onKeyDown={onTypeKeyDown}
         disabled={
-          busy ||
+          inputLocked ||
           inputMode !== "type" ||
           awaitingContinue ||
           recallCandidates != null
@@ -1479,7 +1498,7 @@ export function InkPage() {
               aria-checked={inputMode === "pen"}
               aria-label={t(settings.locale, "modePen")}
               title={t(settings.locale, "modePen")}
-              disabled={busy}
+              disabled={inputLocked}
             >
               <PenNib size={15} aria-hidden />
             </button>
@@ -1491,7 +1510,7 @@ export function InkPage() {
               aria-checked={inputMode === "type"}
               aria-label={t(settings.locale, "modeType")}
               title={t(settings.locale, "modeType")}
-              disabled={busy}
+              disabled={inputLocked}
             >
               <Text size={15} aria-hidden />
             </button>
@@ -1502,7 +1521,7 @@ export function InkPage() {
             onClick={() => setHistoryOpen(true)}
             aria-label={t(settings.locale, "history")}
             title={t(settings.locale, "history")}
-            disabled={busy}
+            disabled={inputLocked}
           >
             <BookOpen size={16} aria-hidden />
           </button>
