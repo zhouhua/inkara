@@ -133,6 +133,34 @@ select {
   display: block;
 }
 
+.reply-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  transition:
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reply-stage.is-rising,
+.reply-stage.is-background {
+  transform: translateY(-12%);
+  opacity: 0.35;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reply-stage {
+    transition: none;
+  }
+
+  .reply-stage.is-rising,
+  .reply-stage.is-background {
+    transform: none;
+    opacity: 0.4;
+  }
+}
+
 .reply-layer {
   z-index: 1;
   pointer-events: none;
@@ -1008,6 +1036,91 @@ button.history-cal-cell:disabled {
   font-size: 0.95rem;
   color: var(--ink-soft);
   letter-spacing: 0.04em;
+}
+
+.history-search-label {
+  display: block;
+  margin: 0 0 1.25rem;
+}
+
+.history-search {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+  padding: 0.35rem 0;
+  outline: none;
+}
+
+.history-search::placeholder {
+  color: var(--ink-faint);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.recall-pick {
+  position: absolute;
+  inset: 18% 12% auto;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  pointer-events: auto;
+}
+
+.recall-pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.recall-pick-item {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--hairline);
+  cursor: pointer;
+}
+
+.recall-pick-date {
+  display: block;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  margin-bottom: 0.2rem;
+}
+
+.recall-pick-body {
+  display: block;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.recall-pick-nevermind {
+  align-self: flex-start;
+  margin-top: 0.25rem;
 }
 
 .history-list {

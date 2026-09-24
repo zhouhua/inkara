@@ -11,7 +11,6 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import BookOpen from "reicon-react/icons/BookOpen";
-import Eraser from "reicon-react/icons/Eraser";
 import Export from "reicon-react/icons/Export";
 import PenNib from "reicon-react/icons/PenNib";
 import Setting from "reicon-react/icons/Setting";
@@ -34,6 +33,7 @@ import {
 } from "@/lib/ink-motion";
 import {
   appendMemory,
+  beginNewChapterSession,
   clearMemory,
   hydrateMemory,
   recentContext,
@@ -48,8 +48,8 @@ import {
 } from "@/lib/quota";
 import {
   extractRecallNeedle,
-  findMemoryByQuery,
   looksLikeRecall,
+  resolveRecallHits,
 } from "@/lib/recall";
 import {
   defaultSettings,
@@ -124,7 +124,11 @@ export function InkPage() {
   const [settings, setSettings] = useState<AppSettings>(SSR_SETTINGS);
   const [, setMemoryCount] = useState(0);
   const [statusExtra, setStatusExtra] = useState<string | null>(null);
-  const [pageToolsVisible, setPageToolsVisible] = useState(false);
+  const [awaitingContinue, setAwaitingContinue] = useState(false);
+  const [hasDialogueBackground, setHasDialogueBackground] = useState(false);
+  const [recallCandidates, setRecallCandidates] = useState<MemoryPage[] | null>(
+    null
+  );
 
   const setPhaseBoth = useCallback((p: Phase) => {
     phaseRef.current = p;
@@ -569,7 +573,9 @@ export function InkPage() {
     clearReplyLayer();
     recallingRef.current = false;
     setStatusExtra(null);
-    setPageToolsVisible(false);
+    setAwaitingContinue(false);
+    setHasDialogueBackground(false);
+    setRecallCandidates(null);
     setPhaseBoth("ready");
   }, [clearReplyLayer, setPhaseBoth]);
 
@@ -664,22 +670,33 @@ export function InkPage() {
             result.recallQuery ||
             extractRecallNeedle(transcription) ||
             transcription;
-          const page = findMemoryByQuery(query);
-          if (!page) {
+          const resolution = resolveRecallHits(query);
+          if (resolution.kind === "miss") {
             writePaperMessage(t(locale, "recallMiss"));
             setStatusExtra(null);
             setPhaseBoth("error");
             return;
           }
 
+          if (resolution.kind === "multi") {
+            clearReplyLayer();
+            setRecallCandidates(resolution.pages);
+            setAwaitingContinue(false);
+            setHasDialogueBackground(false);
+            setPhaseBoth("ready");
+            return;
+          }
+
           setPhaseBoth("recalling");
           clearReplyLayer();
-          await animateRecallPage(page, animSignal);
+          await animateRecallPage(resolution.page, animSignal);
           if (animSignal.cancelled) {
             resetToReady();
             return;
           }
-          recallingRef.current = true;
+          recallingRef.current = false;
+          setHasDialogueBackground(true);
+          setAwaitingContinue(false);
           setPhaseBoth("ready");
           return;
         }
@@ -697,7 +714,8 @@ export function InkPage() {
           reply: finalReply,
         });
         setMemoryCount(pages.length);
-        setPageToolsVisible(true);
+        setAwaitingContinue(true);
+        setHasDialogueBackground(false);
         setPhaseBoth("ready");
       } catch (e) {
         if (
@@ -741,6 +759,7 @@ export function InkPage() {
   );
 
   const commitPage = useCallback(async () => {
+    if (awaitingContinue || recallCandidates) return;
     if (phaseRef.current !== "writing" && phaseRef.current !== "ready") return;
     if (!hasContent()) {
       setPhaseBoth("ready");
@@ -776,7 +795,6 @@ export function InkPage() {
       setSettings(next);
       saveSettings(next);
     }
-    setPageToolsVisible(false);
     clearReadAs();
     setStatusExtra(null);
     recallingRef.current = false;
@@ -797,11 +815,13 @@ export function InkPage() {
 
     await runAsk(image, typedSnapshot);
   }, [
+    awaitingContinue,
     clearIdle,
     clearReadAs,
     hasContent,
     inputMode,
     paintTypedOntoInk,
+    recallCandidates,
     resetToReady,
     runAsk,
     setPhaseBoth,
@@ -866,27 +886,23 @@ export function InkPage() {
 
   const getInkCtx = () => inkRef.current?.getContext("2d") ?? null;
 
-  const dismissRecall = useCallback(() => {
-    recallingRef.current = false;
-    clearReplyLayer();
-    setPhaseBoth("ready");
-  }, [clearReplyLayer, setPhaseBoth]);
-
   const handlePaperPointer = useCallback(() => {
-    const p = phaseRef.current;
-    if (p === "recalling" || recallingRef.current) {
-      dismissRecall();
+    if (recallCandidates) {
+      setRecallCandidates(null);
+      setPhaseBoth("ready");
       return true;
     }
+    const p = phaseRef.current;
     if (p === "error") {
       void retryLastCommit();
       return true;
     }
     return false;
-  }, [dismissRecall, retryLastCommit]);
+  }, [recallCandidates, retryLastCommit, setPhaseBoth]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (handlePaperPointer()) return;
+    if (awaitingContinue || recallCandidates) return;
 
     if (inputMode !== "pen") return;
     if (
@@ -913,7 +929,9 @@ export function InkPage() {
       return;
     }
 
-    clearReplyLayer();
+    if (!hasDialogueBackground) {
+      clearReplyLayer();
+    }
     clearReadAs();
 
     const canvas = inkRef.current;
@@ -933,7 +951,6 @@ export function InkPage() {
     if (ctx) drawStroke(ctx, stroke, dprRef.current);
 
     setPhaseBoth("writing");
-    setPageToolsVisible(false);
     clearIdle();
     setStatusExtra(null);
   };
@@ -976,7 +993,6 @@ export function InkPage() {
     }
     if (hasContent()) {
       setPhaseBoth("writing");
-      setPageToolsVisible(false);
       scheduleIdle();
     } else {
       setPhaseBoth("ready");
@@ -984,6 +1000,7 @@ export function InkPage() {
   };
 
   const onTypedChange = (value: string) => {
+    if (awaitingContinue || recallCandidates) return;
     if (
       phaseRef.current === "fading" ||
       phaseRef.current === "thinking" ||
@@ -992,14 +1009,15 @@ export function InkPage() {
     ) {
       return;
     }
-    clearReplyLayer();
+    if (!hasDialogueBackground) {
+      clearReplyLayer();
+    }
     clearReadAs();
     setTypedText(value);
     typedTextRef.current = value;
     setStatusExtra(null);
     if (value.trim()) {
       setPhaseBoth("writing");
-      setPageToolsVisible(false);
       scheduleIdle();
     } else {
       clearIdle();
@@ -1008,6 +1026,7 @@ export function InkPage() {
   };
 
   const onTypeKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (awaitingContinue || recallCandidates) return;
     if (e.key !== "Enter" || e.shiftKey) return;
     if (
       phaseRef.current !== "writing" &&
@@ -1055,9 +1074,8 @@ export function InkPage() {
     setPhaseBoth(stillWriting ? "writing" : "ready");
   };
 
-  const clearPage = () => {
+  const clearInputOnly = useCallback(() => {
     clearIdle();
-    setPageToolsVisible(false);
     animSignalRef.current.cancelled = true;
     animSignalRef.current = { cancelled: true };
     abortRef.current?.abort();
@@ -1069,12 +1087,68 @@ export function InkPage() {
     typedTextRef.current = "";
     clearReadAs();
     const ink = inkRef.current;
-    const reply = replyRef.current;
     ink?.getContext("2d")?.clearRect(0, 0, ink.width, ink.height);
-    reply?.getContext("2d")?.clearRect(0, 0, reply.width, reply.height);
     setStatusExtra(null);
     setPhaseBoth("ready");
-  };
+  }, [clearIdle, clearReadAs, setPhaseBoth]);
+
+  const newChapter = useCallback(() => {
+    clearInputOnly();
+    clearReplyLayer();
+    setHasDialogueBackground(false);
+    setAwaitingContinue(false);
+    setRecallCandidates(null);
+    beginNewChapterSession();
+  }, [clearInputOnly, clearReplyLayer]);
+
+  const continueWriting = useCallback(() => {
+    const reduced = prefersReducedMotion();
+    const stage = document.querySelector(".reply-stage") as HTMLElement | null;
+    if (reduced || !stage) {
+      setAwaitingContinue(false);
+      setHasDialogueBackground(true);
+      return;
+    }
+    stage.classList.add("is-rising");
+    const done = () => {
+      stage.classList.remove("is-rising");
+      stage.classList.add("is-background");
+      setAwaitingContinue(false);
+      setHasDialogueBackground(true);
+      stage.removeEventListener("transitionend", done);
+    };
+    stage.addEventListener("transitionend", done);
+    window.setTimeout(done, 500);
+  }, []);
+
+  const pickRecallCandidate = useCallback(
+    async (page: MemoryPage) => {
+      setRecallCandidates(null);
+      setPhaseBoth("recalling");
+      clearReplyLayer();
+      await animateRecallPage(page, animSignalRef.current);
+      recallingRef.current = false;
+      setHasDialogueBackground(true);
+      setAwaitingContinue(false);
+      setPhaseBoth("ready");
+    },
+    [animateRecallPage, clearReplyLayer, setPhaseBoth]
+  );
+
+  const reliveMemoryPage = useCallback(
+    async (page: MemoryPage) => {
+      setHistoryOpen(false);
+      setRecallCandidates(null);
+      setPhaseBoth("recalling");
+      clearReplyLayer();
+      await animateRecallPage(page, animSignalRef.current);
+      recallingRef.current = false;
+      setHasDialogueBackground(true);
+      setAwaitingContinue(false);
+      setPhaseBoth("ready");
+    },
+    [animateRecallPage, clearReplyLayer, setPhaseBoth]
+  );
 
   const onExport = () => {
     const wrap = wrapRef.current;
@@ -1090,8 +1164,23 @@ export function InkPage() {
     phase === "answering" ||
     phase === "recalling";
 
+  const showSessionDock =
+    !busy &&
+    (awaitingContinue ||
+      hasDialogueBackground ||
+      recallCandidates != null);
+
+  const hasInputForDock = typedText.trim().length > 0 || phase === "writing";
+  const clearChapterKind = (() => {
+    if (!showSessionDock || recallCandidates) return null;
+    if (hasInputForDock) return "clear" as const;
+    if (hasDialogueBackground || awaitingContinue) return "chapter" as const;
+    return null;
+  })();
+
   const onPaperDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (busy || settingsOpen || historyOpen) return;
+    if (busy || settingsOpen || historyOpen || awaitingContinue || recallCandidates)
+      return;
     const target = e.target as HTMLElement | null;
     if (
       target?.closest(
@@ -1162,7 +1251,8 @@ export function InkPage() {
     settingsOpen,
   ]);
 
-  const paperInteractive = phase === "recalling" || phase === "error";
+  const paperInteractive =
+    phase === "error" || recallCandidates != null;
 
   const isBusyPhase =
     phase === "fading" ||
@@ -1273,20 +1363,73 @@ export function InkPage() {
         </blockquote>
       ) : null}
 
-      <canvas
-        ref={replyRef}
-        className="reply-layer"
-        aria-hidden
-        style={paperInteractive ? { pointerEvents: "auto" } : undefined}
-        onPointerDown={
-          paperInteractive
-            ? (e) => {
-                e.preventDefault();
-                handlePaperPointer();
-              }
-            : undefined
-        }
-      />
+      <div
+        className={[
+          "reply-stage",
+          hasDialogueBackground && !awaitingContinue ? "is-background" : "",
+          awaitingContinue ? "is-awaiting-continue" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <canvas
+          ref={replyRef}
+          className="reply-layer"
+          aria-hidden
+          style={paperInteractive ? { pointerEvents: "auto" } : undefined}
+          onPointerDown={
+            paperInteractive
+              ? (e) => {
+                  e.preventDefault();
+                  handlePaperPointer();
+                }
+              : undefined
+          }
+        />
+      </div>
+
+      {recallCandidates ? (
+        <div className="recall-pick" role="listbox" aria-label={t(settings.locale, "history")}>
+          <ol className="recall-pick-list">
+            {recallCandidates.map((page) => {
+              const dateStr = new Date(page.createdAt).toLocaleString(
+                settings.locale === "zh" ? "zh-CN" : "en-US",
+                {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }
+              );
+              const snippet =
+                page.transcription.trim() || t(settings.locale, "historyUnread");
+              return (
+                <li key={page.id}>
+                  <button
+                    type="button"
+                    className="recall-pick-item"
+                    onClick={() => void pickRecallCandidate(page)}
+                  >
+                    <span className="recall-pick-date">{dateStr}</span>
+                    <span className="recall-pick-body">{snippet}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+          <button
+            type="button"
+            className="ink-link recall-pick-nevermind"
+            onClick={() => {
+              setRecallCandidates(null);
+              setPhaseBoth("ready");
+            }}
+          >
+            {t(settings.locale, "recallPickNevermind")}
+          </button>
+        </div>
+      ) : null}
+
       <canvas
         ref={inkRef}
         className={`ink-layer ${inputMode === "type" ? "is-passive" : ""}`}
@@ -1302,7 +1445,12 @@ export function InkPage() {
         value={typedText}
         onChange={(e) => onTypedChange(e.target.value)}
         onKeyDown={onTypeKeyDown}
-        disabled={busy || inputMode !== "type"}
+        disabled={
+          busy ||
+          inputMode !== "type" ||
+          awaitingContinue ||
+          recallCandidates != null
+        }
         spellCheck={false}
         aria-label={t(settings.locale, "modeType")}
         aria-hidden={inputMode !== "type"}
@@ -1402,29 +1550,51 @@ export function InkPage() {
           {dockHint ? <p className={statusClass}>{dockHint}</p> : null}
         </div>
         <div
-          className={`submit-dock-tools ${pageToolsVisible ? "is-visible" : ""}`}
-          aria-hidden={!pageToolsVisible}
+          className={`submit-dock-tools ${showSessionDock ? "is-visible" : ""}`}
+          aria-hidden={!showSessionDock}
         >
-          <button
-            type="button"
-            className="ink-link ink-icon-btn"
-            onClick={clearPage}
-            aria-label={t(settings.locale, "clearPage")}
-            title={t(settings.locale, "clearPage")}
-            tabIndex={pageToolsVisible ? 0 : -1}
-          >
-            <Eraser size={16} aria-hidden />
-          </button>
-          <button
-            type="button"
-            className="ink-link ink-icon-btn"
-            onClick={onExport}
-            aria-label={t(settings.locale, "exportPage")}
-            title={t(settings.locale, "exportPage")}
-            tabIndex={pageToolsVisible ? 0 : -1}
-          >
-            <Export size={16} aria-hidden />
-          </button>
+          {awaitingContinue ? (
+            <button
+              type="button"
+              className="ink-link"
+              onClick={continueWriting}
+              tabIndex={showSessionDock ? 0 : -1}
+            >
+              {t(settings.locale, "continueWriting")}
+            </button>
+          ) : null}
+          {clearChapterKind === "clear" ? (
+            <button
+              type="button"
+              className="ink-link"
+              onClick={clearInputOnly}
+              tabIndex={showSessionDock ? 0 : -1}
+            >
+              {t(settings.locale, "clearPage")}
+            </button>
+          ) : null}
+          {clearChapterKind === "chapter" ? (
+            <button
+              type="button"
+              className="ink-link"
+              onClick={newChapter}
+              tabIndex={showSessionDock ? 0 : -1}
+            >
+              {t(settings.locale, "newChapter")}
+            </button>
+          ) : null}
+          {showSessionDock && !recallCandidates ? (
+            <button
+              type="button"
+              className="ink-link ink-icon-btn"
+              onClick={onExport}
+              aria-label={t(settings.locale, "exportPage")}
+              title={t(settings.locale, "exportPage")}
+              tabIndex={showSessionDock ? 0 : -1}
+            >
+              <Export size={16} aria-hidden />
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -1447,6 +1617,7 @@ export function InkPage() {
         locale={settings.locale}
         onClose={() => setHistoryOpen(false)}
         onMemoryChange={setMemoryCount}
+        onRelive={(page) => void reliveMemoryPage(page)}
       />
     </div>
   );

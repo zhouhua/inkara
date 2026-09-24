@@ -13,10 +13,14 @@ export type MemoryPage = {
   reply: string;
 };
 
-const MAX_PAGES = 40;
+/** Soft cap — trim oldest when exceeded */
+const MAX_PAGES = 5000;
 const CONTEXT_PAGES = 8;
 
 let memoryCache: MemoryPage[] = [];
+
+/** In-memory only; refresh restores full recent context. */
+let sessionCutoffAt = 0;
 
 function isMemoryPage(v: unknown): v is MemoryPage {
   if (!v || typeof v !== "object") return false;
@@ -75,8 +79,14 @@ export function deleteMemoryPage(id: string) {
   return pages;
 }
 
+/** Disconnect prompt context without deleting diary pages. */
+export function beginNewChapterSession() {
+  sessionCutoffAt = Date.now();
+}
+
 export function recentContext(pages: MemoryPage[] = loadMemory()) {
-  return pages.slice(-CONTEXT_PAGES).map((p) => ({
+  const inSession = pages.filter((p) => p.createdAt > sessionCutoffAt);
+  return inSession.slice(-CONTEXT_PAGES).map((p) => ({
     transcription: p.transcription,
     reply: p.reply,
     createdAt: p.createdAt,

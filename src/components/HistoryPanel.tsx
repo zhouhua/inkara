@@ -4,10 +4,12 @@ import { useId, useMemo, useState } from "react";
 import { HistoryCalendar } from "@/components/HistoryCalendar";
 import { t, type Locale } from "@/lib/i18n";
 import { toDayKey } from "@/lib/dates";
+import { filterHistoryPages } from "@/lib/history-filter";
 import {
   clearMemory,
   deleteMemoryPage,
   loadMemory,
+  type MemoryPage,
 } from "@/lib/memory";
 
 type Props = {
@@ -15,13 +17,22 @@ type Props = {
   locale: Locale;
   onClose: () => void;
   onMemoryChange: (count: number) => void;
+  onRelive: (page: MemoryPage) => void;
 };
 
-export function HistoryPanel({ open, locale, onClose, onMemoryChange }: Props) {
+export function HistoryPanel({
+  open,
+  locale,
+  onClose,
+  onMemoryChange,
+  onRelive,
+}: Props) {
   const titleId = useId();
+  const searchId = useId();
   const [revision, setRevision] = useState(0);
   const [confirmClear, setConfirmClear] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const pages = useMemo(() => {
     if (!open) return [];
@@ -34,10 +45,14 @@ export function HistoryPanel({ open, locale, onClose, onMemoryChange }: Props) {
     [pages]
   );
 
-  const filtered = useMemo(() => {
-    if (!selectedDay) return pages;
-    return pages.filter((p) => toDayKey(p.createdAt) === selectedDay);
-  }, [pages, selectedDay]);
+  const filtered = useMemo(
+    () =>
+      filterHistoryPages(pages, {
+        dayKey: selectedDay,
+        query,
+      }),
+    [pages, selectedDay, query]
+  );
 
   if (!open) return null;
 
@@ -53,6 +68,7 @@ export function HistoryPanel({ open, locale, onClose, onMemoryChange }: Props) {
   const handleClose = () => {
     setConfirmClear(false);
     setSelectedDay(null);
+    setQuery("");
     onClose();
   };
 
@@ -88,6 +104,7 @@ export function HistoryPanel({ open, locale, onClose, onMemoryChange }: Props) {
                   onMemoryChange(0);
                   setConfirmClear(false);
                   setSelectedDay(null);
+                  setQuery("");
                 }}
               >
                 {t(locale, "confirmForget")}
@@ -109,6 +126,21 @@ export function HistoryPanel({ open, locale, onClose, onMemoryChange }: Props) {
             : t(locale, "memoryCount", { n: pages.length })}
         </p>
 
+        {pages.length > 0 ? (
+          <label className="history-search-label" htmlFor={searchId}>
+            <span className="sr-only">{t(locale, "historySearchPlaceholder")}</span>
+            <input
+              id={searchId}
+              type="search"
+              className="history-search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t(locale, "historySearchPlaceholder")}
+              autoComplete="off"
+            />
+          </label>
+        ) : null}
+
         <HistoryCalendar
           locale={locale}
           timestamps={timestamps}
@@ -119,7 +151,11 @@ export function HistoryPanel({ open, locale, onClose, onMemoryChange }: Props) {
         {pages.length === 0 ? (
           <p className="history-empty">{t(locale, "historyEmpty")}</p>
         ) : filtered.length === 0 ? (
-          <p className="history-empty">{t(locale, "calendarDayNoPages")}</p>
+          <p className="history-empty">
+            {query.trim()
+              ? t(locale, "historySearchEmpty")
+              : t(locale, "calendarDayNoPages")}
+          </p>
         ) : (
           <ol className="history-list">
             {filtered.map((page, index) => (
@@ -131,6 +167,16 @@ export function HistoryPanel({ open, locale, onClose, onMemoryChange }: Props) {
                   <time dateTime={new Date(page.createdAt).toISOString()}>
                     {formatDate(page.createdAt)}
                   </time>
+                  <button
+                    type="button"
+                    className="ink-link"
+                    onClick={() => {
+                      onRelive(page);
+                      handleClose();
+                    }}
+                  >
+                    {t(locale, "historyRelive")}
+                  </button>
                   <button
                     type="button"
                     className="ink-link history-delete"
