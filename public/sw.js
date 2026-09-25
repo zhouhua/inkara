@@ -1,7 +1,7 @@
 /* Minimal app-shell cache for offline reopen of the paper UI.
    API calls are network-only (paper needs the oracle). */
-const CACHE = "inkara-shell-v2";
-const PRECACHE = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const CACHE = "inkara-shell-v3";
+const PRECACHE = ["/", "/manifest.webmanifest", "/icons/icon-192.svg", "/icons/icon-512.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
