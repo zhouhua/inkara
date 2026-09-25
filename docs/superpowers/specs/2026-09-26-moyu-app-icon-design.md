@@ -1,7 +1,7 @@
 # 墨语 App 图标
 
 日期：2026-09-26  
-状态：已确认
+状态：已确认（落地改为直接使用「流畅 1」PNG，不再手绘 SVG）
 
 ## 问题
 
@@ -61,8 +61,8 @@
 
 | 文件 | 说明 |
 |------|------|
-| `public/icons/icon-512.svg` | 主屏幕 / 高分屏 |
-| `public/icons/icon-192.svg` | favicon、apple-touch、manifest |
+| `public/icons/icon-512.png` | 主屏幕 / 高分屏（直接导出「流畅 1」） |
+| `public/icons/icon-192.png` | favicon、apple-touch、manifest |
 | （可选）同源 32/16 若浏览器需要时可另导出；本轮以 192/512 SVG 为准 |
 
 参考位图保留在：
@@ -73,10 +73,11 @@
 
 替换现有两枚 SVG 后，核对以下引用仍指向同一路径（通常无需改代码）：
 
-- `src/app/layout.tsx`：`metadata.icons` / `apple`
-- `public/manifest.webmanifest`：`icons[]`
+- `src/app/layout.tsx`：`metadata.icons` / `apple` → `/icons/icon-192.png`、`/icons/icon-512.png`
+- `public/manifest.webmanifest`：`icons[]` → PNG
+- `public/sw.js`：预缓存路径同步为 PNG（cache 版本递增）
 
-若 manifest 仅列 SVG，保持即可；若日后加 PNG maskable，另开任务。
+落地说明：手绘 SVG 无法复现「流畅 1」观感，最终直接缩放参考位图为 `icon-192.png` / `icon-512.png`。
 
 ## 验收
 
