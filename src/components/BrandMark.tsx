@@ -12,8 +12,8 @@ export function BrandMark({ locale }: BrandMarkProps) {
         className="brand-logo"
         src="/icons/icon-192.svg"
         alt=""
-        width={28}
-        height={28}
+        width={32}
+        height={32}
         decoding="async"
         aria-hidden
       />
