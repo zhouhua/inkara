@@ -130,11 +130,11 @@ buildRecallMissSystemPrompt     = join(identity, missRules, voice)
 
 ## 7. Acceptance
 
-- [ ] 中英块一一对应；改 `voice` 时三套 system 同步变化
-- [ ] 硬规则表（§4）在中英文最终串中均可追溯
-- [ ] 无「字段提醒」、无字数/句数区间
-- [ ] 主路径中文 `buildSystemPrompt("zh")` 长度较重构前下降 ≥ ~30%
-- [ ] 现有测试（若有 prompts 相关）通过；无相关测试则至少手工确认三函数可调用且非空
+- [x] 中英块一一对应；改 `voice` 时三套 system 同步变化
+- [x] 硬规则表（§4）在中英文最终串中均可追溯
+- [x] 无「字段提醒」、无字数/句数区间
+- [x] 主路径中文 `buildSystemPrompt("zh")` 长度较重构前下降 ≥ ~30%（1119 → 659，≈ −41%）
+- [x] 现有测试（若有 prompts 相关）通过；无相关测试则至少手工确认三函数可调用且非空
 
 ---
 
