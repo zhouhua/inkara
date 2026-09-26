@@ -1,10 +1,11 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { BrandMark } from "@/components/BrandMark";
 import { HistoryCalendar } from "@/components/HistoryCalendar";
 import { t, type Locale } from "@/lib/i18n";
 import { toDayKey } from "@/lib/dates";
-import { filterHistoryPages } from "@/lib/history-filter";
+import { filterHistoryPagesHybrid } from "@/lib/history-filter";
 import {
   clearMemory,
   deleteMemoryPage,
@@ -33,6 +34,7 @@ export function HistoryPanel({
   const [confirmClear, setConfirmClear] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [filtered, setFiltered] = useState<MemoryPage[]>([]);
 
   const pages = useMemo(() => {
     if (!open) return [];
@@ -45,14 +47,23 @@ export function HistoryPanel({
     [pages]
   );
 
-  const filtered = useMemo(
-    () =>
-      filterHistoryPages(pages, {
+  useEffect(() => {
+    if (!open) {
+      setFiltered([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const next = await filterHistoryPagesHybrid(pages, {
         dayKey: selectedDay,
         query,
-      }),
-    [pages, selectedDay, query]
-  );
+      });
+      if (!cancelled) setFiltered(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, pages, selectedDay, query]);
 
   if (!open) return null;
 
@@ -80,10 +91,7 @@ export function HistoryPanel({
       aria-labelledby={titleId}
     >
       <header className="history-chrome">
-        <div className="brand-mark">
-          <p className="brand-zh">{t(locale, "brand")}</p>
-          <p className="brand-en">{t(locale, "brandEn")}</p>
-        </div>
+        <BrandMark locale={locale} />
         <nav className="paper-actions">
           {pages.length > 0 &&
             (!confirmClear ? (

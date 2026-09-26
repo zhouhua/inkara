@@ -10,32 +10,45 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import BookOpen from "reicon-react/icons/BookOpen";
 import Export from "reicon-react/icons/Export";
+import HelpCircle from "reicon-react/icons/HelpCircle";
 import PenNib from "reicon-react/icons/PenNib";
+import Redo from "reicon-react/icons/Redo";
 import Setting from "reicon-react/icons/Setting";
 import Text from "reicon-react/icons/Text";
+import Undo from "reicon-react/icons/Undo";
+import { BrandMark } from "@/components/BrandMark";
+import { HelpPanel } from "@/components/HelpPanel";
 import { HistoryPanel } from "@/components/HistoryPanel";
+import { DockHints } from "@/components/DockHints";
+import { RecallCiteLayer } from "@/components/RecallCiteLayer";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { askPageStream } from "@/lib/ask-stream";
 import {
   resolvePaperError,
-  resolveRecallMissError,
   type PaperErrorAction,
 } from "@/lib/ask-errors";
-import { hydrateDb } from "@/lib/db";
+import { hydrateDb, whenDbReady } from "@/lib/db";
+import { collectDockHints } from "@/lib/dock-hints";
+import {
+  subscribeEmbeddingLoad,
+  type EmbeddingLoadState,
+} from "@/lib/embeddings";
 import { exportPaperPng } from "@/lib/export-page";
-import { firstRunDockHint } from "@/lib/first-run-hint";
 import { t, type MessageKey } from "@/lib/i18n";
 import {
   charRevealDelay,
   drawInkChar,
+  fadeElementIntoPaper,
   fadeInReplyBlock,
   fadeInkIntoPaper,
   layoutReplyChars,
   prefersReducedMotion,
   quoteTopCssPx,
   sleep,
+  smoothApproach,
 } from "@/lib/ink-motion";
 import {
   appendMemory,
@@ -53,15 +66,26 @@ import {
   usesFreeQuota,
 } from "@/lib/quota";
 import {
+  rankRecallCandidates,
+  toRankCandidates,
+} from "@/lib/recall-rank";
+import {
   extractRecallNeedle,
+  hybridRetrieve,
   looksLikeRecall,
-  resolveRecallHits,
 } from "@/lib/recall";
+import {
+  orderPagesByRankedIds,
+  pickRecallCitePages,
+  stripCiteMarkers,
+  toRecallCitePayloads,
+} from "@/lib/recall-cite";
 import {
   defaultSettings,
   hasUserApiKey,
   hydrateSettings,
   idleMsFor,
+  loadSettings,
   saveSettings,
   type AppSettings,
   type InputMode,
@@ -74,13 +98,16 @@ import {
   type Point,
   type Stroke,
 } from "@/lib/strokes";
+import {
+  chromeClearanceCss,
+  computeDialoguePark,
+  measureDialogueCssBounds,
+} from "@/lib/dialogue-layout";
 
 type Phase =
   | "ready"
   | "writing"
-  | "fading"
   | "thinking"
-  | "confirming"
   | "answering"
   | "recalling"
   | "error";
@@ -100,7 +127,12 @@ export function InkPage() {
   const typeRef = useRef<HTMLTextAreaElement>(null);
 
   const strokesRef = useRef<Stroke[]>([]);
+  const strokeRedoRef = useRef<Stroke[]>([]);
   const currentRef = useRef<Stroke | null>(null);
+  const typeUndoRef = useRef<string[]>([]);
+  const typeRedoRef = useRef<string[]>([]);
+  const applyingTypeHistoryRef = useRef(false);
+  const [editHistory, setEditHistory] = useState({ undo: 0, redo: 0 });
   const typedTextRef = useRef("");
   const dprRef = useRef(1);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -133,28 +165,45 @@ export function InkPage() {
   const [typedText, setTypedText] = useState("");
   const [readAsText, setReadAsText] = useState<string | null>(null);
   const [readAsTopPx, setReadAsTopPx] = useState<number | null>(null);
+  const readAsTextRef = useRef<string | null>(null);
   const [idleProgress, setIdleProgress] = useState(0);
   const [idleArmed, setIdleArmed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(SSR_SETTINGS);
+  const settingsDirtyRef = useRef(false);
+  const [dbReady, setDbReady] = useState(false);
+  const dbReadyRef = useRef(false);
   const [, setMemoryCount] = useState(0);
   const [statusExtra, setStatusExtra] = useState<string | null>(null);
   const [awaitingContinue, setAwaitingContinue] = useState(false);
   const [hasDialogueBackground, setHasDialogueBackground] = useState(false);
-  const [recallCandidates, setRecallCandidates] = useState<MemoryPage[] | null>(
-    null
-  );
+  const [recallCite, setRecallCite] = useState<{
+    reply: string;
+    pages: MemoryPage[];
+  } | null>(null);
+  const [openCiteIndex, setOpenCiteIndex] = useState<number | null>(null);
   const [paperErrorAction, setPaperErrorAction] =
     useState<PaperErrorAction | null>(null);
   const [continueMotion, setContinueMotion] = useState(false);
   const [replyRising, setReplyRising] = useState(false);
+  const [dialogueRisePx, setDialogueRisePx] = useState<number | null>(null);
+  const [writingTopPx, setWritingTopPx] = useState<number | null>(null);
   const [vvOffset, setVvOffset] = useState(0);
+  const [embedLoad, setEmbedLoad] = useState<EmbeddingLoadState>({
+    status: "idle",
+    progress: 0,
+  });
+  /** Visual: ink/text soaking into paper while phase is already `thinking`. */
+  const [inkSinking, setInkSinking] = useState(false);
 
   const setPhaseBoth = useCallback((p: Phase) => {
     phaseRef.current = p;
     setPhase(p);
   }, []);
+
+  useEffect(() => subscribeEmbeddingLoad(setEmbedLoad), []);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -168,8 +217,13 @@ export function InkPage() {
       const pages = await hydrateMemory();
       await hydrateQuota();
       if (cancelled) return;
-      setSettings(nextSettings);
+      // Don't clobber in-session edits that landed before hydrate finished.
+      if (!settingsDirtyRef.current) {
+        setSettings(nextSettings);
+      }
       setMemoryCount(pages.length);
+      dbReadyRef.current = true;
+      setDbReady(true);
     })();
     return () => {
       cancelled = true;
@@ -185,10 +239,22 @@ export function InkPage() {
   }, [settings.locale]);
 
   useEffect(() => {
-    if (inputMode === "type" && !settingsOpen) {
+    if (inputMode === "type" && !settingsOpen && !helpOpen) {
       typeRef.current?.focus();
     }
-  }, [inputMode, settingsOpen]);
+  }, [inputMode, settingsOpen, helpOpen]);
+
+  // After sink fade, keep opacity 0 until soak ends so clearing inline styles
+  // never fights `.is-sinking { opacity: 1 }` while text remains.
+  useEffect(() => {
+    if (inkSinking) return;
+    const ta = typeRef.current;
+    if (!ta) return;
+    ta.style.opacity = "";
+    ta.style.transform = "";
+    ta.style.filter = "";
+    ta.style.willChange = "";
+  }, [inkSinking]);
 
   const resizeCanvases = useCallback(() => {
     const wrap = wrapRef.current;
@@ -254,6 +320,27 @@ export function InkPage() {
     setIdleArmed(false);
   }, []);
 
+  const syncEditHistory = useCallback((mode: InputMode) => {
+    if (mode === "pen") {
+      setEditHistory({
+        undo: strokesRef.current.length,
+        redo: strokeRedoRef.current.length,
+      });
+    } else {
+      setEditHistory({
+        undo: typeUndoRef.current.length,
+        redo: typeRedoRef.current.length,
+      });
+    }
+  }, []);
+
+  const resetEditHistory = useCallback(() => {
+    strokeRedoRef.current = [];
+    typeUndoRef.current = [];
+    typeRedoRef.current = [];
+    setEditHistory({ undo: 0, redo: 0 });
+  }, []);
+
   const hasPenInk = useCallback(() => {
     return strokesRef.current.some((s) => !s.erase && s.points.length > 0);
   }, []);
@@ -266,55 +353,61 @@ export function InkPage() {
     const reply = replyRef.current;
     reply?.getContext("2d")?.clearRect(0, 0, reply.width, reply.height);
     setPaperErrorAction(null);
+    setRecallCite(null);
+    setOpenCiteIndex(null);
+  }, []);
+
+  const clearDialoguePark = useCallback(() => {
+    setDialogueRisePx(null);
+    setWritingTopPx(null);
+  }, []);
+
+  /** Measure quote+reply ink and park them above a measured writing band. */
+  const parkDialogueForWriting = useCallback(() => {
+    const wrap = wrapRef.current;
+    const reply = replyRef.current;
+    if (!wrap || !reply) return false;
+
+    const quoteEl = wrap.querySelector(".read-as-quote") as HTMLElement | null;
+    const citeEl = wrap.querySelector(
+      "[data-recall-cite]"
+    ) as HTMLElement | null;
+    const bounds = measureDialogueCssBounds({
+      wrap,
+      replyCanvas: reply,
+      quoteEl,
+      citeEl,
+    });
+    if (!bounds) return false;
+
+    const wrapH = wrap.getBoundingClientRect().height;
+    const { risePx, writingTopPx: top } = computeDialoguePark(
+      bounds,
+      chromeClearanceCss(wrap),
+      { wrapHeight: wrapH }
+    );
+    setDialogueRisePx(risePx);
+    setWritingTopPx(top);
+    return true;
   }, []);
 
   const clearReadAs = useCallback(() => {
+    readAsTextRef.current = null;
     setReadAsText(null);
     setReadAsTopPx(null);
   }, []);
 
   const showReadAsQuote = useCallback((transcription: string) => {
+    readAsTextRef.current = transcription;
     setReadAsText(transcription);
-    // Before reply lands, park near mid-page; animateAnswer nudges it against the reply.
+    // Before reply lands, park near mid-page; reveal nudges it against the reply.
     const wrap = wrapRef.current;
     const h = wrap?.getBoundingClientRect().height ?? window.innerHeight;
     const quoteCssH = Math.min(
       72,
       18 + Math.ceil(transcription.length / 28) * 22
     );
-    setReadAsTopPx(Math.max(72, h * 0.5 - quoteCssH - 8));
-  }, []);
-
-  const paintTypedOntoInk = useCallback(() => {
-    const text = typedTextRef.current.trim();
-    const ink = inkRef.current;
-    if (!text || !ink) return;
-
-    const ctx = ink.getContext("2d");
-    if (!ctx) return;
-
-    const dpr = dprRef.current;
-    const padX = 56 * dpr;
-    const padY = 72 * dpr;
-    const maxWidth = ink.width - padX * 2;
-    const fontSize = Math.max(26, Math.min(36, ink.width / 32));
-    const rootStyle = getComputedStyle(document.documentElement);
-    const uiZh = rootStyle.getPropertyValue("--font-ui-zh").trim();
-    const uiLatin = rootStyle.getPropertyValue("--font-ui-latin").trim();
-    ctx.save();
-    ctx.font = `${fontSize}px ${uiZh || "Noto Sans SC"}, ${uiLatin || "sans-serif"}`;
-    ctx.fillStyle = INK;
-    ctx.textBaseline = "top";
-
-    const lines = wrapText(ctx, text, maxWidth);
-    const lineHeight = fontSize * 1.65;
-    let y = padY;
-    for (const line of lines) {
-      ctx.fillText(line, padX, y);
-      y += lineHeight;
-      if (y > ink.height - padY) break;
-    }
-    ctx.restore();
+    setReadAsTopPx(Math.max(72, h * 0.5 - quoteCssH - 8) + 20);
   }, []);
 
   const prepareReplyCtx = useCallback(() => {
@@ -522,6 +615,8 @@ export function InkPage() {
       signal: { cancelled: boolean }
     ) => {
       const reduced = prefersReducedMotion();
+      const quoteOf = () => readAsTextRef.current;
+
       if (reduced) {
         while (!isDone() && !signal.cancelled) {
           await sleep(32);
@@ -532,11 +627,12 @@ export function InkPage() {
         const prep0 = prepareReplyCtx();
         if (!prep0) return;
         const dpr0 = prep0.dpr;
-        const quoteCssH = readAsText
-          ? Math.min(72, 18 + Math.ceil(readAsText.length / 28) * 22)
+        const quoteText = quoteOf();
+        const quoteCssH = quoteText
+          ? Math.min(72, 18 + Math.ceil(quoteText.length / 28) * 22)
           : 0;
         const gapCss = 12;
-        const reserveAbove = readAsText ? (quoteCssH + gapCss) * dpr0 : 0;
+        const reserveAbove = quoteText ? (quoteCssH + gapCss) * dpr0 : 0;
 
         await fadeInReplyBlock({
           durationMs: 180,
@@ -554,7 +650,7 @@ export function InkPage() {
               align: "center",
               reserveAbove,
             });
-            if (chars.length > 0 && readAsText) {
+            if (chars.length > 0 && quoteOf()) {
               setReadAsTopPx(quoteTopCssPx(chars[0].y, dpr, quoteCssH, gapCss));
             }
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -570,71 +666,180 @@ export function InkPage() {
       }
 
       let painted = 0;
-      while (!signal.cancelled) {
-        const text = getText();
+      /** Anchored start Y; eases up only when content would overflow the bottom. */
+      let displayStartY: number | null = null;
+      let lastQuoteCssY = -1;
+
+      const layoutAt = (text: string, startY: number) => {
         const prep = prepareReplyCtx();
-        if (!prep) return;
+        if (!prep) return null;
         const { canvas, ctx, dpr, padX, padY, maxWidth, lineHeight } = prep;
-        const quoteCssH = readAsText
-          ? Math.min(72, 18 + Math.ceil(readAsText.length / 28) * 22)
+        const quoteText = quoteOf();
+        const quoteCssH = quoteText
+          ? Math.min(72, 18 + Math.ceil(quoteText.length / 28) * 22)
           : 0;
         const gapCss = 12;
-        const reserveAbove = readAsText ? (quoteCssH + gapCss) * dpr : 0;
+        // Top-anchored: never re-center as lines grow (centering jumps ~½ line
+        // each wrap — felt like “halfway through a line”).
         const chars = layoutReplyChars(ctx, text, {
           padX,
           padY,
           maxWidth,
           lineHeight,
           canvasHeight: canvas.height,
-          align: "center",
-          reserveAbove,
+          align: "top",
+          fixedStartY: startY,
         });
-        if (chars.length > 0 && readAsText) {
-          setReadAsTopPx(quoteTopCssPx(chars[0].y, dpr, quoteCssH, gapCss));
+        return {
+          canvas,
+          ctx,
+          dpr,
+          padY,
+          lineHeight,
+          chars,
+          quoteCssH,
+          gapCss,
+          canvasHeight: canvas.height,
+        };
+      };
+
+      const syncQuote = (
+        startY: number,
+        dpr: number,
+        quoteCssH: number,
+        gapCss: number
+      ) => {
+        if (!quoteOf()) return;
+        const top = quoteTopCssPx(startY, dpr, quoteCssH, gapCss);
+        if (Math.abs(top - lastQuoteCssY) < 0.5) return;
+        lastQuoteCssY = top;
+        setReadAsTopPx(top);
+      };
+
+      const paintPainted = (
+        frame: NonNullable<ReturnType<typeof layoutAt>>,
+        count: number,
+        progressive?: { index: number; progress: number }
+      ) => {
+        const { canvas, ctx, dpr, chars } = frame;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const upto = progressive ? progressive.index : count;
+        for (let j = 0; j < upto && j < chars.length; j++) {
+          drawInkChar(ctx, chars[j].ch, chars[j].x, chars[j].y, dpr, 1);
+        }
+        if (progressive && progressive.index < chars.length) {
+          const { ch, x, y } = chars[progressive.index];
+          drawInkChar(ctx, ch, x, y, dpr, progressive.progress);
+        }
+      };
+
+      const pickInitialStartY = () => {
+        const prep = prepareReplyCtx();
+        if (!prep) return 0;
+        const { canvas, dpr, padY, lineHeight } = prep;
+        const quoteText = quoteOf();
+        const quoteCssH = quoteText
+          ? Math.min(72, 18 + Math.ceil(quoteText.length / 28) * 22)
+          : 0;
+        const gapCss = 12;
+        const quoteSpace = quoteText ? (quoteCssH + gapCss) * dpr : 0;
+        const usable = canvas.height - padY * 2;
+        return Math.max(
+          padY + quoteSpace,
+          padY + quoteSpace + (usable - quoteSpace - lineHeight) / 2
+        );
+      };
+
+      const easeScrollForOverflow = (
+        frame: NonNullable<ReturnType<typeof layoutAt>>,
+        startY: number
+      ) => {
+        const { chars, padY, lineHeight, canvasHeight } = frame;
+        if (chars.length === 0) return startY;
+        const bottom = chars[chars.length - 1].y + lineHeight;
+        const maxBottom = canvasHeight - padY;
+        if (bottom <= maxBottom) return startY;
+        return smoothApproach(startY, startY - (bottom - maxBottom), 0.28);
+      };
+
+      while (!signal.cancelled) {
+        const text = getText();
+        if (displayStartY == null) {
+          displayStartY = pickInitialStartY();
         }
 
+        let frame = layoutAt(text, displayStartY);
+        if (!frame) return;
+        displayStartY = easeScrollForOverflow(frame, displayStartY);
+        frame = layoutAt(text, displayStartY);
+        if (!frame) return;
+
+        const { chars, dpr, quoteCssH, gapCss } = frame;
+        if (chars.length > 0) {
+          syncQuote(chars[0].y, dpr, quoteCssH, gapCss);
+        }
+
+        const overflowSettled =
+          chars.length === 0 ||
+          chars[chars.length - 1].y + frame.lineHeight <=
+            frame.canvasHeight - frame.padY + 0.5;
+
         if (painted >= chars.length) {
-          if (isDone()) break;
-          await sleep(32);
+          if (painted > 0) paintPainted(frame, painted);
+          if (isDone() && overflowSettled) break;
+          await sleep(isDone() ? 16 : 32);
           continue;
         }
 
         const i = painted;
-        const { ch, x, y } = chars[i];
         for (const progress of [0.35, 0.7, 1] as const) {
           if (signal.cancelled) return;
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          for (let j = 0; j < i; j++) {
-            drawInkChar(ctx, chars[j].ch, chars[j].x, chars[j].y, dpr, 1);
+          const liveProbe = layoutAt(getText(), displayStartY);
+          if (liveProbe) {
+            displayStartY = easeScrollForOverflow(liveProbe, displayStartY);
           }
-          drawInkChar(ctx, ch, x, y, dpr, progress);
+          const live = layoutAt(getText(), displayStartY);
+          if (!live || live.chars.length === 0) return;
+          syncQuote(live.chars[0].y, live.dpr, live.quoteCssH, live.gapCss);
+          paintPainted(live, painted, { index: i, progress });
           await sleep(18);
         }
         painted = i + 1;
-        await sleep(charRevealDelay(ch, false));
+        await sleep(charRevealDelay(chars[i]?.ch ?? " ", false));
       }
     },
-    [prepareReplyCtx, readAsText]
+    [prepareReplyCtx]
   );
 
   const resetToReady = useCallback(() => {
     clearReplyLayer();
+    clearDialoguePark();
     recallingRef.current = false;
+    setInkSinking(false);
     setStatusExtra(null);
     setAwaitingContinue(false);
     setHasDialogueBackground(false);
-    setRecallCandidates(null);
+    setRecallCite(null);
+    setOpenCiteIndex(null);
     setPhaseBoth("ready");
-  }, [clearReplyLayer, setPhaseBoth]);
+  }, [clearDialoguePark, clearReplyLayer, setPhaseBoth]);
 
   const runAsk = useCallback(
-    async (image: string, typedSnapshot: string) => {
+    async (
+      image: string,
+      typedSnapshot: string,
+      opts?: { gateReveal?: Promise<void> }
+    ) => {
       const locale = settingsRef.current.locale;
       const showReadAs = settingsRef.current.showReadAs;
       const animSignal = animSignalRef.current;
 
-      setPhaseBoth("thinking");
       clearReplyLayer();
+      clearDialoguePark();
+      setHasDialogueBackground(false);
+      setReplyRising(false);
+      setContinueMotion(false);
+      setAwaitingContinue(false);
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -645,9 +850,11 @@ export function InkPage() {
       const reveal = { promise: null as Promise<void> | null };
       let revealStarted = false;
       const revealCancel = { cancelled: false };
+      let revealGateOpen = !opts?.gateReveal;
+      let pendingReadAs: string | null = null;
 
       const startRevealIfNeeded = () => {
-        if (revealStarted || !liveReplyRef.current) return;
+        if (!revealGateOpen || revealStarted || !liveReplyRef.current) return;
         revealStarted = true;
         setPhaseBoth("answering");
         reveal.promise = revealAnswerLive(
@@ -656,6 +863,30 @@ export function InkPage() {
           revealCancel
         );
       };
+
+      const openRevealGate = () => {
+        if (revealGateOpen || animSignal.cancelled) return;
+        revealGateOpen = true;
+        if (
+          phaseRef.current === "thinking" &&
+          liveReplyRef.current
+        ) {
+          setPhaseBoth("answering");
+        }
+        if (showReadAs && pendingReadAs) {
+          showReadAsQuote(pendingReadAs);
+          pendingReadAs = null;
+        }
+        startRevealIfNeeded();
+      };
+
+      if (!opts?.gateReveal) {
+        setPhaseBoth("thinking");
+      } else {
+        void opts.gateReveal.then(() => {
+          openRevealGate();
+        });
+      }
 
       try {
         if (!navigator.onLine) {
@@ -676,7 +907,7 @@ export function InkPage() {
         const byok = hasUserApiKey(currentSettings);
         const result = await askPageStream(
           {
-            image,
+            ...(image ? { image } : {}),
             locale,
             memory,
             typedText: typedSnapshot || undefined,
@@ -695,17 +926,21 @@ export function InkPage() {
               startRevealIfNeeded();
             },
             onMeta: (transcription) => {
-              if (
-                showReadAs &&
-                transcription &&
-                phaseRef.current === "thinking"
-              ) {
+              if (!showReadAs || !transcription) return;
+              if (revealGateOpen) {
                 showReadAsQuote(transcription);
+              } else {
+                pendingReadAs = transcription;
               }
             },
           },
           { signal: controller.signal }
         );
+
+        if (opts?.gateReveal) {
+          await opts.gateReveal;
+          openRevealGate();
+        }
 
         if (animSignal.cancelled || controller.signal.aborted) {
           revealCancel.cancelled = true;
@@ -737,37 +972,184 @@ export function InkPage() {
         if (isRecall) {
           revealCancel.cancelled = true;
           if (reveal.promise) await reveal.promise;
-          clearReplyLayer();
+
+          const replyCanvas = replyRef.current;
+          replyCanvas
+            ?.getContext("2d")
+            ?.clearRect(0, 0, replyCanvas.width, replyCanvas.height);
+          setRecallCite(null);
+          setOpenCiteIndex(null);
+          setPhaseBoth("recalling");
+
           const query =
             result.recallQuery ||
             extractRecallNeedle(transcription) ||
             transcription;
-          const resolution = resolveRecallHits(query);
-          if (resolution.kind === "miss") {
-            const miss = resolveRecallMissError();
-            showPaperError(miss.messageKey as MessageKey, miss.action);
-            return;
-          }
 
-          if (resolution.kind === "multi") {
-            clearReplyLayer();
-            setRecallCandidates(resolution.pages);
-            setAwaitingContinue(false);
-            setHasDialogueBackground(false);
-            setPhaseBoth("ready");
-            return;
-          }
-
-          setPhaseBoth("recalling");
-          clearReplyLayer();
-          await animateRecallPage(resolution.page, animSignal);
+          const scored = await hybridRetrieve(query);
           if (animSignal.cancelled) {
             resetToReady();
             return;
           }
+
+          let ordered = scored.map((s) => s.page);
+          if (scored.length > 0) {
+            try {
+              const rank = await rankRecallCandidates({
+                query,
+                locale,
+                candidates: toRankCandidates(scored.map((s) => s.page)),
+                ...(byok
+                  ? {
+                      apiKey: currentSettings.apiKey.trim(),
+                      baseUrl: currentSettings.baseUrl.trim() || undefined,
+                      model: currentSettings.model.trim() || undefined,
+                    }
+                  : {}),
+              });
+              if (animSignal.cancelled) {
+                resetToReady();
+                return;
+              }
+              if (rank.rankedIds.length > 0) {
+                ordered = orderPagesByRankedIds(
+                  rank.rankedIds,
+                  scored.map((s) => s.page)
+                );
+              }
+            } catch {
+              // Keep hybrid order
+            }
+          }
+
+          const citePages = pickRecallCitePages(ordered);
+          const byokFields = byok
+            ? {
+                apiKey: currentSettings.apiKey.trim(),
+                baseUrl: currentSettings.baseUrl.trim() || undefined,
+                model: currentSettings.model.trim() || undefined,
+              }
+            : {};
+
+          buffered = "";
+          liveReplyRef.current = "";
+          streamDoneRef.current = false;
+          revealStarted = false;
+          revealCancel.cancelled = false;
+          reveal.promise = null;
+
+          if (citePages.length === 0) {
+            setPhaseBoth("thinking");
+            const missResult = await askPageStream(
+              {
+                locale,
+                memory,
+                typedText: transcription,
+                fixedTranscription: transcription,
+                recallMode: "miss",
+                ...byokFields,
+              },
+              {
+                onDelta: (text) => {
+                  buffered += text;
+                  liveReplyRef.current += text;
+                  startRevealIfNeeded();
+                },
+              },
+              { signal: controller.signal }
+            );
+
+            if (animSignal.cancelled || controller.signal.aborted) {
+              revealCancel.cancelled = true;
+              if (reveal.promise) await reveal.promise;
+              resetToReady();
+              return;
+            }
+
+            liveReplyRef.current =
+              missResult.reply || liveReplyRef.current || buffered;
+            const missReply = liveReplyRef.current;
+            streamDoneRef.current = true;
+            if (!revealStarted && missReply.trim()) {
+              startRevealIfNeeded();
+            }
+            if (reveal.promise) {
+              await reveal.promise;
+            } else if (missReply.trim()) {
+              setPhaseBoth("answering");
+              await revealAnswerLive(
+                () => missReply,
+                () => true,
+                revealCancel
+              );
+            }
+
+            if (animSignal.cancelled || revealCancel.cancelled) {
+              resetToReady();
+              return;
+            }
+
+            const pages = appendMemory({
+              transcription,
+              reply: missReply,
+            });
+            setMemoryCount(pages.length);
+            recallingRef.current = false;
+            setAwaitingContinue(true);
+            setHasDialogueBackground(false);
+            clearDialoguePark();
+            setPhaseBoth("ready");
+            return;
+          }
+
+          setPhaseBoth("thinking");
+          const citeResult = await askPageStream(
+            {
+              locale,
+              memory,
+              typedText: transcription,
+              fixedTranscription: transcription,
+              recallMode: "cite",
+              recallPages: toRecallCitePayloads(citePages),
+              ...byokFields,
+            },
+            {
+              onDelta: (text) => {
+                buffered += text;
+                liveReplyRef.current += text;
+              },
+            },
+            { signal: controller.signal }
+          );
+
+          if (animSignal.cancelled || controller.signal.aborted) {
+            resetToReady();
+            return;
+          }
+
+          const citeReply =
+            citeResult.reply || liveReplyRef.current || buffered;
+          liveReplyRef.current = citeReply;
+          streamDoneRef.current = true;
+
+          setRecallCite({ reply: citeReply, pages: citePages });
+          setPhaseBoth("answering");
+          await sleep(prefersReducedMotion() ? 0 : 420);
+
+          if (animSignal.cancelled) {
+            resetToReady();
+            return;
+          }
+
+          const pages = appendMemory({
+            transcription,
+            reply: stripCiteMarkers(citeReply) || citeReply,
+          });
+          setMemoryCount(pages.length);
           recallingRef.current = false;
-          setHasDialogueBackground(true);
-          setAwaitingContinue(false);
+          setAwaitingContinue(true);
+          setHasDialogueBackground(false);
+          clearDialoguePark();
           setPhaseBoth("ready");
           return;
         }
@@ -799,6 +1181,7 @@ export function InkPage() {
         setMemoryCount(pages.length);
         setAwaitingContinue(true);
         setHasDialogueBackground(false);
+        clearDialoguePark();
         setPhaseBoth("ready");
       } catch (e) {
         if (
@@ -824,7 +1207,7 @@ export function InkPage() {
       }
     },
     [
-      animateRecallPage,
+      clearDialoguePark,
       clearReplyLayer,
       resetToReady,
       revealAnswerLive,
@@ -835,7 +1218,18 @@ export function InkPage() {
   );
 
   const commitPage = useCallback(async () => {
-    if (awaitingContinue || recallCandidates) return;
+    if (awaitingContinue) return;
+    if (!dbReadyRef.current) {
+      await whenDbReady();
+      await hydrateSettings();
+      if (!settingsDirtyRef.current) {
+        const s = loadSettings();
+        settingsRef.current = s;
+        setSettings(s);
+      }
+      dbReadyRef.current = true;
+      setDbReady(true);
+    }
     if (phaseRef.current !== "writing" && phaseRef.current !== "ready") return;
     if (!hasContent()) {
       setPhaseBoth("ready");
@@ -858,15 +1252,19 @@ export function InkPage() {
       strokesRef.current = [];
       currentRef.current = null;
       ink.getContext("2d")?.clearRect(0, 0, ink.width, ink.height);
+      resetEditHistory();
     }
 
     const typedSnapshot = typedTextRef.current.trim();
-    setPhaseBoth("fading");
-    if (!settingsRef.current.hasCommittedOnce) {
+    setPhaseBoth("thinking");
+    setInkSinking(true);
+    const cached = loadSettings();
+    if (!cached.hasCommittedOnce) {
       const next = {
-        ...settingsRef.current,
+        ...cached,
         hasCommittedOnce: true,
       };
+      settingsDirtyRef.current = true;
       settingsRef.current = next;
       setSettings(next);
       saveSettings(next);
@@ -875,29 +1273,60 @@ export function InkPage() {
     setStatusExtra(null);
     recallingRef.current = false;
 
-    paintTypedOntoInk();
-    setTypedText("");
-    typedTextRef.current = "";
-    const image = ink.toDataURL("image/png");
+    // Pen mode needs a vision snapshot; type mode sends typedText only — no fake paint.
+    const image =
+      inputMode === "pen" ? ink.toDataURL("image/png") : "";
     lastCommitRef.current = { image, typedSnapshot };
 
-    await fadeInkIntoPaper(ink, { signal: animSignalRef.current });
-    strokesRef.current = [];
+    const fadePromise = (async () => {
+      try {
+        if (inputMode === "type") {
+          const ta = typeRef.current;
+          if (ta) {
+            await fadeElementIntoPaper(ta, {
+              signal: animSignalRef.current,
+              driftPx: Math.max(6, (ink.height / dprRef.current) * 0.02),
+            });
+          }
+          // Flush empty value while opacity is still 0 — otherwise clearing the
+          // inline style lets `.is-sinking` snap text back to full opacity for a frame.
+          flushSync(() => {
+            setTypedText("");
+          });
+          typedTextRef.current = "";
+        } else {
+          setTypedText("");
+          typedTextRef.current = "";
+          await fadeInkIntoPaper(ink, { signal: animSignalRef.current });
+        }
+        strokesRef.current = [];
+        resetEditHistory();
+      } finally {
+        setInkSinking(false);
+      }
+    })();
+
+    // Overlap model wait with the soak so a longer fade does not add latency.
+    const askPromise = runAsk(image, typedSnapshot, {
+      gateReveal: fadePromise,
+    });
+
+    await fadePromise;
 
     if (animSignalRef.current.cancelled) {
+      abortRef.current?.abort();
       resetToReady();
       return;
     }
 
-    await runAsk(image, typedSnapshot);
+    await askPromise;
   }, [
     awaitingContinue,
     clearIdle,
     clearReadAs,
     hasContent,
     inputMode,
-    paintTypedOntoInk,
-    recallCandidates,
+    resetEditHistory,
     resetToReady,
     runAsk,
     setPhaseBoth,
@@ -962,14 +1391,116 @@ export function InkPage() {
 
   const getInkCtx = () => inkRef.current?.getContext("2d") ?? null;
 
-  const handlePaperPointer = useCallback(() => {
-    if (recallCandidates) {
-      setRecallCandidates(null);
+  const redrawInkLayer = useCallback(() => {
+    const ink = inkRef.current;
+    const ctx = getInkCtx();
+    if (!ink || !ctx) return;
+    redrawAll(ctx, strokesRef.current, ink.width, ink.height, dprRef.current);
+  }, []);
+
+  const afterPenEdit = useCallback(() => {
+    redrawInkLayer();
+    syncEditHistory("pen");
+    if (hasPenInk()) {
+      setPhaseBoth("writing");
+      scheduleIdle();
+    } else {
+      clearIdle();
       setPhaseBoth("ready");
+    }
+  }, [
+    clearIdle,
+    hasPenInk,
+    redrawInkLayer,
+    scheduleIdle,
+    setPhaseBoth,
+    syncEditHistory,
+  ]);
+
+  const afterTypeEdit = useCallback(
+    (value: string) => {
+      syncEditHistory("type");
+      setStatusExtra(null);
+      if (value.trim()) {
+        setPhaseBoth("writing");
+        scheduleIdle();
+      } else {
+        clearIdle();
+        setPhaseBoth("ready");
+      }
+    },
+    [clearIdle, scheduleIdle, setPhaseBoth, syncEditHistory]
+  );
+
+  const canEditNow = () => {
+    const p = phaseRef.current;
+    return (
+      p !== "thinking" &&
+      p !== "answering" &&
+      p !== "recalling" &&
+      p !== "error"
+    );
+  };
+
+  const undoEdit = useCallback(() => {
+    if (!canEditNow()) return;
+
+    if (inputMode === "pen") {
+      if (currentRef.current) return;
+      const strokes = strokesRef.current;
+      if (strokes.length === 0) return;
+      const last = strokes[strokes.length - 1];
+      strokesRef.current = strokes.slice(0, -1);
+      strokeRedoRef.current = [...strokeRedoRef.current, last];
+      afterPenEdit();
+      return;
+    }
+
+    const stack = typeUndoRef.current;
+    if (stack.length === 0) return;
+    const prev = stack[stack.length - 1];
+    typeUndoRef.current = stack.slice(0, -1);
+    typeRedoRef.current = [...typeRedoRef.current, typedTextRef.current];
+    applyingTypeHistoryRef.current = true;
+    setTypedText(prev);
+    typedTextRef.current = prev;
+    applyingTypeHistoryRef.current = false;
+    afterTypeEdit(prev);
+  }, [afterPenEdit, afterTypeEdit, inputMode]);
+
+  const redoEdit = useCallback(() => {
+    if (!canEditNow()) return;
+
+    if (inputMode === "pen") {
+      if (currentRef.current) return;
+      const stack = strokeRedoRef.current;
+      if (stack.length === 0) return;
+      const next = stack[stack.length - 1];
+      strokeRedoRef.current = stack.slice(0, -1);
+      strokesRef.current = [...strokesRef.current, next];
+      afterPenEdit();
+      return;
+    }
+
+    const stack = typeRedoRef.current;
+    if (stack.length === 0) return;
+    const next = stack[stack.length - 1];
+    typeRedoRef.current = stack.slice(0, -1);
+    typeUndoRef.current = [...typeUndoRef.current, typedTextRef.current];
+    applyingTypeHistoryRef.current = true;
+    setTypedText(next);
+    typedTextRef.current = next;
+    applyingTypeHistoryRef.current = false;
+    afterTypeEdit(next);
+  }, [afterPenEdit, afterTypeEdit, inputMode]);
+
+  const handlePaperPointer = useCallback(() => {
+    if (openCiteIndex != null) {
+      setOpenCiteIndex(null);
       return true;
     }
     return false;
-  }, [recallCandidates, setPhaseBoth]);
+  }, [openCiteIndex]);
 
   const onPaperErrorAction = useCallback(() => {
     const action = paperErrorAction;
@@ -977,7 +1508,10 @@ export function InkPage() {
     if (action === "open_settings") {
       clearReplyLayer();
       setPhaseBoth("ready");
-      setSettingsOpen(true);
+      if (dbReadyRef.current) setSettingsOpen(true);
+      else {
+        void whenDbReady().then(() => setSettingsOpen(true));
+      }
       return;
     }
     if (action === "retry") {
@@ -990,15 +1524,13 @@ export function InkPage() {
 
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (handlePaperPointer()) return;
-    if (awaitingContinue || recallCandidates) return;
+    if (awaitingContinue) return;
     if (phaseRef.current === "error") return;
 
     if (inputMode !== "pen") return;
     if (
-      phaseRef.current === "fading" ||
       phaseRef.current === "thinking" ||
       phaseRef.current === "answering" ||
-      phaseRef.current === "confirming" ||
       phaseRef.current === "recalling"
     ) {
       return;
@@ -1044,6 +1576,10 @@ export function InkPage() {
     };
     currentRef.current = stroke;
     strokesRef.current = [...strokesRef.current, stroke];
+    if (strokeRedoRef.current.length > 0) {
+      strokeRedoRef.current = [];
+      setEditHistory((h) => ({ ...h, redo: 0 }));
+    }
     lastTapArmedRef.current = false;
 
     const ctx = getInkCtx();
@@ -1102,9 +1638,7 @@ export function InkPage() {
     }
 
     if (
-      phaseRef.current === "fading" ||
       phaseRef.current === "thinking" ||
-      phaseRef.current === "confirming" ||
       phaseRef.current === "answering" ||
       phaseRef.current === "recalling" ||
       phaseRef.current === "error"
@@ -1117,13 +1651,13 @@ export function InkPage() {
     } else {
       setPhaseBoth("ready");
     }
+    syncEditHistory("pen");
   };
 
   const onTypedChange = (value: string) => {
-    if (awaitingContinue || recallCandidates) return;
+    if (awaitingContinue) return;
     if (phaseRef.current === "error") return;
     if (
-      phaseRef.current === "fading" ||
       phaseRef.current === "thinking" ||
       phaseRef.current === "answering" ||
       phaseRef.current === "recalling"
@@ -1134,20 +1668,35 @@ export function InkPage() {
       clearReplyLayer();
     }
     clearReadAs();
+
+    if (!applyingTypeHistoryRef.current) {
+      const prev = typedTextRef.current;
+      if (value !== prev) {
+        typeUndoRef.current = [...typeUndoRef.current, prev].slice(-80);
+        typeRedoRef.current = [];
+      }
+    }
+
     setTypedText(value);
     typedTextRef.current = value;
-    setStatusExtra(null);
-    if (value.trim()) {
-      setPhaseBoth("writing");
-      scheduleIdle();
-    } else {
-      clearIdle();
-      if (!hasPenInk()) setPhaseBoth("ready");
-    }
+    afterTypeEdit(value);
   };
 
   const onTypeKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    if (awaitingContinue || recallCandidates) return;
+    if (awaitingContinue) return;
+
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")) {
+      const isRedo =
+        e.key === "y" ||
+        e.key === "Y" ||
+        ((e.key === "z" || e.key === "Z") && e.shiftKey);
+      e.preventDefault();
+      if (isRedo) redoEdit();
+      else undoEdit();
+      return;
+    }
+
     if (e.key !== "Enter" || e.shiftKey) return;
     if (
       phaseRef.current !== "writing" &&
@@ -1163,9 +1712,7 @@ export function InkPage() {
 
   const switchMode = (mode: InputMode) => {
     if (
-      phaseRef.current === "fading" ||
       phaseRef.current === "thinking" ||
-      phaseRef.current === "confirming" ||
       phaseRef.current === "answering" ||
       phaseRef.current === "recalling"
     ) {
@@ -1179,12 +1726,16 @@ export function InkPage() {
     if (mode === "pen") {
       setTypedText("");
       typedTextRef.current = "";
+      typeUndoRef.current = [];
+      typeRedoRef.current = [];
     } else {
       strokesRef.current = [];
       currentRef.current = null;
       const ink = inkRef.current;
       ink?.getContext("2d")?.clearRect(0, 0, ink.width, ink.height);
+      strokeRedoRef.current = [];
     }
+    setEditHistory({ undo: 0, redo: 0 });
 
     setInputMode(mode);
 
@@ -1204,6 +1755,7 @@ export function InkPage() {
     recallingRef.current = false;
     strokesRef.current = [];
     currentRef.current = null;
+    resetEditHistory();
     setTypedText("");
     typedTextRef.current = "";
     clearReadAs();
@@ -1211,18 +1763,21 @@ export function InkPage() {
     ink?.getContext("2d")?.clearRect(0, 0, ink.width, ink.height);
     setStatusExtra(null);
     setPhaseBoth("ready");
-  }, [clearIdle, clearReadAs, setPhaseBoth]);
+  }, [clearIdle, clearReadAs, resetEditHistory, setPhaseBoth]);
 
   const newChapter = useCallback(() => {
     clearInputOnly();
     clearReplyLayer();
+    clearDialoguePark();
     setHasDialogueBackground(false);
     setAwaitingContinue(false);
-    setRecallCandidates(null);
+    setRecallCite(null);
+    setOpenCiteIndex(null);
     beginNewChapterSession();
-  }, [clearInputOnly, clearReplyLayer]);
+  }, [clearDialoguePark, clearInputOnly, clearReplyLayer]);
 
   const continueWriting = useCallback(() => {
+    parkDialogueForWriting();
     setContinueMotion(true);
     setReplyRising(false);
     requestAnimationFrame(() => {
@@ -1233,38 +1788,35 @@ export function InkPage() {
           setContinueMotion(false);
           setAwaitingContinue(false);
           setHasDialogueBackground(true);
-        }, 500);
+        }, 560);
       });
     });
-  }, []);
-
-  const pickRecallCandidate = useCallback(
-    async (page: MemoryPage) => {
-      setRecallCandidates(null);
-      setPhaseBoth("recalling");
-      clearReplyLayer();
-      await animateRecallPage(page, animSignalRef.current);
-      recallingRef.current = false;
-      setHasDialogueBackground(true);
-      setAwaitingContinue(false);
-      setPhaseBoth("ready");
-    },
-    [animateRecallPage, clearReplyLayer, setPhaseBoth]
-  );
+  }, [parkDialogueForWriting]);
 
   const reliveMemoryPage = useCallback(
     async (page: MemoryPage) => {
       setHistoryOpen(false);
-      setRecallCandidates(null);
+      clearReadAs();
+      setRecallCite(null);
+      setOpenCiteIndex(null);
       setPhaseBoth("recalling");
       clearReplyLayer();
       await animateRecallPage(page, animSignalRef.current);
       recallingRef.current = false;
       setHasDialogueBackground(true);
       setAwaitingContinue(false);
+      requestAnimationFrame(() => {
+        parkDialogueForWriting();
+      });
       setPhaseBoth("ready");
     },
-    [animateRecallPage, clearReplyLayer, setPhaseBoth]
+    [
+      animateRecallPage,
+      clearReadAs,
+      clearReplyLayer,
+      parkDialogueForWriting,
+      setPhaseBoth,
+    ]
   );
 
   const onExport = () => {
@@ -1276,7 +1828,6 @@ export function InkPage() {
   };
 
   const busy =
-    phase === "fading" ||
     phase === "thinking" ||
     phase === "answering" ||
     phase === "recalling";
@@ -1285,13 +1836,11 @@ export function InkPage() {
 
   const showSessionDock =
     !busy &&
-    (awaitingContinue ||
-      hasDialogueBackground ||
-      recallCandidates != null);
+    (awaitingContinue || hasDialogueBackground || recallCite != null);
 
   const hasInputForDock = typedText.trim().length > 0 || phase === "writing";
   const clearChapterKind = (() => {
-    if (!showSessionDock || recallCandidates) return null;
+    if (!showSessionDock) return null;
     if (hasInputForDock) return "clear" as const;
     if (hasDialogueBackground || awaitingContinue) return "chapter" as const;
     return null;
@@ -1301,9 +1850,9 @@ export function InkPage() {
     if (
       inputLocked ||
       settingsOpen ||
+      helpOpen ||
       historyOpen ||
-      awaitingContinue ||
-      recallCandidates
+      awaitingContinue
     )
       return;
     const target = e.target as HTMLElement | null;
@@ -1345,8 +1894,29 @@ export function InkPage() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (settingsOpen || helpOpen || historyOpen) return;
+
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")) {
+        if (phaseRef.current !== "ready" && phaseRef.current !== "writing") {
+          return;
+        }
+        // Textarea handles undo/redo in onTypeKeyDown.
+        const el = e.target as HTMLElement | null;
+        if (el?.tagName === "TEXTAREA") return;
+        if (el?.tagName === "INPUT" || el?.tagName === "SELECT") return;
+
+        const redo =
+          e.key === "y" ||
+          e.key === "Y" ||
+          ((e.key === "z" || e.key === "Z") && e.shiftKey);
+        e.preventDefault();
+        if (redo) redoEdit();
+        else undoEdit();
+        return;
+      }
+
       if (e.key !== "Enter" || e.shiftKey) return;
-      if (settingsOpen || historyOpen) return;
       if (phaseRef.current !== "ready" && phaseRef.current !== "writing") {
         return;
       }
@@ -1371,19 +1941,14 @@ export function InkPage() {
     clearIdle,
     commitPage,
     hasContent,
+    helpOpen,
     historyOpen,
     inputMode,
+    redoEdit,
     settingsOpen,
+    undoEdit,
   ]);
 
-  const paperInteractive = recallCandidates != null;
-
-  const isBusyPhase =
-    phase === "fading" ||
-    phase === "thinking" ||
-    phase === "answering" ||
-    phase === "recalling" ||
-    phase === "error";
 
   const contentPresent = typedText.trim().length > 0 || phase === "writing";
 
@@ -1400,61 +1965,21 @@ export function InkPage() {
     contentPresent &&
     (phase === "writing" || phase === "ready");
 
-  const dockHint = (() => {
-    if (statusExtra) return statusExtra;
-    if (isBusyPhase) {
-      switch (phase) {
-        case "fading":
-          return t(settings.locale, "fading");
-        case "thinking":
-          return t(settings.locale, "thinking");
-        case "answering":
-          return t(settings.locale, "answering");
-        case "recalling":
-          return t(settings.locale, "recalling");
-        case "error":
-          return t(settings.locale, "error");
-        default:
-          return "";
-      }
-    }
-    if (phase !== "ready" && phase !== "writing") return "";
+  const dockHints = collectDockHints({
+    locale: settings.locale,
+    phase,
+    statusExtra,
+    embedLoading: embedLoad.status === "loading",
+    embedProgress: embedLoad.progress,
+    hasCommittedOnce: settings.hasCommittedOnce,
+    submitMode: settings.submitMode,
+    inputMode,
+    contentPresent,
+    idleArmed,
+    manualSubmitHint,
+  });
 
-    if (!settings.hasCommittedOnce) {
-      return firstRunDockHint({
-        locale: settings.locale,
-        submitMode: settings.submitMode,
-        inputMode,
-        contentPresent,
-      });
-    }
-
-    if (settings.submitMode === "manual") {
-      return manualSubmitHint;
-    }
-
-    // auto
-    if (contentPresent) {
-      return idleArmed
-        ? t(settings.locale, "submitHintAuto")
-        : t(settings.locale, "submitHintAutoWait");
-    }
-    return t(settings.locale, "submitHintAutoIdle");
-  })();
-
-  const statusClass = [
-    "submit-hint",
-    isBusyPhase ? "is-active" : "",
-    phase === "thinking" ? "is-pulse" : "",
-    phase === "error" || statusExtra ? "is-error" : "",
-    !isBusyPhase && !contentPresent ? "is-soft" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  const ringCircumference = 2 * Math.PI * 9;
   const ringProgress = showIdleRing && idleArmed ? idleProgress : 0;
-  const ringOffset = ringCircumference * (1 - ringProgress);
 
   const paper = getPaperStyle(settings.paperStyle);
 
@@ -1466,6 +1991,14 @@ export function InkPage() {
       data-paper={settings.paperStyle}
       data-paper-kind={paper.kind}
       onDoubleClick={onPaperDoubleClick}
+      onClick={(e) => {
+        if (openCiteIndex == null) return;
+        const target = e.target as HTMLElement | null;
+        if (target?.closest("[data-recall-cite], .recall-note, button, a")) {
+          return;
+        }
+        setOpenCiteIndex(null);
+      }}
       style={
         paper.step
           ? ({ ["--paper-step" as string]: paper.step } as CSSProperties)
@@ -1474,19 +2007,6 @@ export function InkPage() {
     >
       <div className="paper-pattern" aria-hidden />
 
-      {readAsText ? (
-        <blockquote
-          className="read-as-quote"
-          style={
-            readAsTopPx != null
-              ? ({ top: readAsTopPx } as CSSProperties)
-              : undefined
-          }
-        >
-          {readAsText}
-        </blockquote>
-      ) : null}
-
       <div
         className={[
           "reply-stage",
@@ -1494,67 +2014,53 @@ export function InkPage() {
           replyRising ? "is-rising" : "",
           hasDialogueBackground && !awaitingContinue ? "is-background" : "",
           awaitingContinue ? "is-awaiting-continue" : "",
+          recallCite ? "has-recall-cite" : "",
         ]
           .filter(Boolean)
           .join(" ")}
+        style={
+          dialogueRisePx != null
+            ? ({
+                ["--dialogue-rise" as string]: `${dialogueRisePx}px`,
+              } as CSSProperties)
+            : undefined
+        }
       >
+        {recallCite ? (
+          <div className="recall-cite-stack" data-recall-cite>
+            {readAsText ? (
+              <blockquote className="read-as-quote is-stacked">
+                {readAsText}
+              </blockquote>
+            ) : null}
+            <RecallCiteLayer
+              reply={recallCite.reply}
+              pages={recallCite.pages}
+              locale={settings.locale}
+              openIndex={openCiteIndex}
+              onOpen={setOpenCiteIndex}
+              onClose={() => setOpenCiteIndex(null)}
+            />
+          </div>
+        ) : readAsText ? (
+          <blockquote
+            className="read-as-quote"
+            style={
+              readAsTopPx != null
+                ? ({ top: readAsTopPx } as CSSProperties)
+                : undefined
+            }
+          >
+            {readAsText}
+          </blockquote>
+        ) : null}
         <canvas
           ref={replyRef}
           className="reply-layer"
           aria-hidden
-          style={paperInteractive ? { pointerEvents: "auto" } : undefined}
-          onPointerDown={
-            paperInteractive
-              ? (e) => {
-                  e.preventDefault();
-                  handlePaperPointer();
-                }
-              : undefined
-          }
         />
       </div>
 
-      {recallCandidates ? (
-        <div className="recall-pick" role="listbox" aria-label={t(settings.locale, "history")}>
-          <ol className="recall-pick-list">
-            {recallCandidates.map((page) => {
-              const dateStr = new Date(page.createdAt).toLocaleString(
-                settings.locale === "zh" ? "zh-CN" : "en-US",
-                {
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                }
-              );
-              const snippet =
-                page.transcription.trim() || t(settings.locale, "historyUnread");
-              return (
-                <li key={page.id}>
-                  <button
-                    type="button"
-                    className="recall-pick-item"
-                    onClick={() => void pickRecallCandidate(page)}
-                  >
-                    <span className="recall-pick-date">{dateStr}</span>
-                    <span className="recall-pick-body">{snippet}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-          <button
-            type="button"
-            className="ink-link recall-pick-nevermind"
-            onClick={() => {
-              setRecallCandidates(null);
-              setPhaseBoth("ready");
-            }}
-          >
-            {t(settings.locale, "recallPickNevermind")}
-          </button>
-        </div>
-      ) : null}
 
       {phase === "error" && paperErrorAction ? (
         <button
@@ -1584,31 +2090,56 @@ export function InkPage() {
 
       <textarea
         ref={typeRef}
-        className={`type-layer ${inputMode === "type" && !paperInteractive ? "is-active" : ""}`}
+        className={`type-layer ${inputMode === "type" ? "is-active" : ""}${inkSinking && inputMode === "type" ? " is-sinking" : ""}`}
         value={typedText}
         onChange={(e) => onTypedChange(e.target.value)}
         onKeyDown={onTypeKeyDown}
         disabled={
           inputLocked ||
           inputMode !== "type" ||
-          awaitingContinue ||
-          recallCandidates != null
+          awaitingContinue
         }
         spellCheck={false}
         aria-label={t(settings.locale, "modeType")}
         aria-hidden={inputMode !== "type"}
-        style={paperInteractive ? { pointerEvents: "none" } : undefined}
+        style={{
+          ...(writingTopPx != null ? { top: writingTopPx } : {}),
+          ...(awaitingContinue || (recallCite && !hasDialogueBackground)
+            ? { pointerEvents: "none" as const }
+            : {}),
+        }}
       />
 
       <header className="paper-chrome">
-        <div className="brand-mark">
-          <p className="brand-zh">{t(settings.locale, "brand")}</p>
-          <p className="brand-en">{t(settings.locale, "brandEn")}</p>
-        </div>
+        <BrandMark locale={settings.locale} />
         <nav
           className="paper-actions"
           aria-label={t(settings.locale, "settings")}
         >
+          {editHistory.undo > 0 || editHistory.redo > 0 ? (
+            <div className="edit-history" role="group" aria-label={`${t(settings.locale, "undo")} / ${t(settings.locale, "redo")}`}>
+              <button
+                type="button"
+                className="ink-link ink-icon-btn"
+                onClick={undoEdit}
+                aria-label={t(settings.locale, "undo")}
+                title={t(settings.locale, "undo")}
+                disabled={inputLocked || editHistory.undo === 0}
+              >
+                <Undo size={16} aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="ink-link ink-icon-btn"
+                onClick={redoEdit}
+                aria-label={t(settings.locale, "redo")}
+                title={t(settings.locale, "redo")}
+                disabled={inputLocked || editHistory.redo === 0}
+              >
+                <Redo size={16} aria-hidden />
+              </button>
+            </div>
+          ) : null}
           <div
             className="mode-switch"
             role="radiogroup"
@@ -1642,17 +2173,35 @@ export function InkPage() {
           <button
             type="button"
             className="ink-link ink-icon-btn"
-            onClick={() => setHistoryOpen(true)}
+            onClick={() => {
+              if (!dbReady) return;
+              setHistoryOpen(true);
+            }}
+            disabled={!dbReady}
+            aria-disabled={!dbReady}
             aria-label={t(settings.locale, "history")}
             title={t(settings.locale, "history")}
-            disabled={inputLocked}
           >
             <BookOpen size={16} aria-hidden />
           </button>
           <button
             type="button"
             className="ink-link ink-icon-btn"
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => setHelpOpen(true)}
+            aria-label={t(settings.locale, "help")}
+            title={t(settings.locale, "help")}
+          >
+            <HelpCircle size={16} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="ink-link ink-icon-btn"
+            onClick={() => {
+              if (!dbReady) return;
+              setSettingsOpen(true);
+            }}
+            disabled={!dbReady}
+            aria-disabled={!dbReady}
             aria-label={t(settings.locale, "settings")}
             title={t(settings.locale, "settings")}
           >
@@ -1672,34 +2221,11 @@ export function InkPage() {
         }
       >
         <div className="submit-dock-main">
-          {showIdleRing ? (
-            <svg
-              className="idle-ring"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              aria-hidden
-            >
-              <circle
-                className="idle-ring-track"
-                cx="12"
-                cy="12"
-                r="9"
-                fill="none"
-              />
-              <circle
-                className="idle-ring-progress"
-                cx="12"
-                cy="12"
-                r="9"
-                fill="none"
-                strokeDasharray={ringCircumference}
-                strokeDashoffset={ringOffset}
-                transform="rotate(-90 12 12)"
-              />
-            </svg>
-          ) : null}
-          {dockHint ? <p className={statusClass}>{dockHint}</p> : null}
+          <DockHints
+            hints={dockHints}
+            showIdleRing={showIdleRing}
+            idleRingProgress={ringProgress}
+          />
         </div>
         <div
           className={`submit-dock-tools ${showSessionDock ? "is-visible" : ""}`}
@@ -1735,7 +2261,7 @@ export function InkPage() {
               {t(settings.locale, "newChapter")}
             </button>
           ) : null}
-          {showSessionDock && !recallCandidates ? (
+          {showSessionDock ? (
             <button
               type="button"
               className="ink-link ink-icon-btn"
@@ -1755,13 +2281,22 @@ export function InkPage() {
         settings={settings}
         onClose={() => setSettingsOpen(false)}
         onChange={(next) => {
+          if (!dbReadyRef.current) return;
+          settingsDirtyRef.current = true;
           setSettings(next);
           saveSettings(next);
         }}
         onClearMemory={() => {
+          if (!dbReadyRef.current) return;
           clearMemory();
           setMemoryCount(0);
         }}
+      />
+
+      <HelpPanel
+        open={helpOpen}
+        locale={settings.locale}
+        onClose={() => setHelpOpen(false)}
       />
 
       <HistoryPanel

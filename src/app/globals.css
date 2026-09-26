@@ -138,15 +138,52 @@ select {
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  transition:
-    transform 420ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 420ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 480ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Cite marks/chips must sit above ink/type siblings to receive clicks */
+.reply-stage.has-recall-cite {
+  z-index: 4;
+}
+
+/* Park prior dialogue by measured --dialogue-rise (px), not a guessed % */
 .reply-stage.is-rising,
 .reply-stage.is-background {
-  transform: translateY(-12%);
-  opacity: 0.35;
+  transform: translateY(calc(-1 * var(--dialogue-rise, 0px)));
+}
+
+.reply-stage.is-rising .reply-layer,
+.reply-stage.is-background .reply-layer {
+  opacity: 0.34;
+  transition: opacity 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reply-stage.is-rising .read-as-quote,
+.reply-stage.is-background .read-as-quote,
+.reply-stage.is-rising .recall-cite-stack,
+.reply-stage.is-background .recall-cite-stack,
+.reply-stage.is-rising .recall-cite,
+.reply-stage.is-background .recall-cite {
+  color: #2a3145;
+  border-left-color: color-mix(in srgb, #2a3145 34%, transparent);
+  opacity: 0.34;
+  transition:
+    top 0.12s linear,
+    opacity 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reply-stage.is-rising .recall-cite-stack,
+.reply-stage.is-background .recall-cite-stack,
+.reply-stage.is-rising .recall-cite,
+.reply-stage.is-background .recall-cite {
+  /* Keep marks/chips tappable while faded */
+  opacity: 0.55;
+  pointer-events: auto;
+}
+
+.reply-stage.is-rising .recall-note,
+.reply-stage.is-background .recall-note {
+  opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -154,17 +191,36 @@ select {
     transition: none;
   }
 
+  .reply-stage.is-rising .reply-layer,
+  .reply-stage.is-background .reply-layer,
+  .reply-stage.is-rising .read-as-quote,
+  .reply-stage.is-background .read-as-quote,
+  .reply-stage.is-rising .recall-cite-stack,
+  .reply-stage.is-background .recall-cite-stack,
+  .reply-stage.is-rising .recall-cite,
+  .reply-stage.is-background .recall-cite {
+    transition: none;
+  }
+
   /* Exception: Continue rise/fade still animates (PRD-04) */
   .reply-stage.is-continue-motion {
-    transition:
-      transform 420ms cubic-bezier(0.16, 1, 0.3, 1),
-      opacity 420ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform 480ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .reply-stage.is-continue-motion.is-rising,
   .reply-stage.is-continue-motion.is-background {
-    transform: translateY(-12%);
-    opacity: 0.35;
+    transform: translateY(calc(-1 * var(--dialogue-rise, 0px)));
+  }
+
+  .reply-stage.is-continue-motion.is-rising .reply-layer,
+  .reply-stage.is-continue-motion.is-background .reply-layer,
+  .reply-stage.is-continue-motion.is-rising .read-as-quote,
+  .reply-stage.is-continue-motion.is-background .read-as-quote,
+  .reply-stage.is-continue-motion.is-rising .recall-cite-stack,
+  .reply-stage.is-continue-motion.is-background .recall-cite-stack,
+  .reply-stage.is-continue-motion.is-rising .recall-cite,
+  .reply-stage.is-continue-motion.is-background .recall-cite {
+    transition: opacity 480ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 }
 
@@ -197,16 +253,24 @@ select {
 .type-layer {
   position: absolute;
   z-index: 3;
-  inset: 3.6rem clamp(1rem, 4vw, 2rem) 3.2rem clamp(3rem, 7vw, 4rem);
+  /* Default: below chrome; Continue overrides `top` from measured dialogue */
+  top: calc(4.4rem + 1.35rem);
+  right: clamp(1rem, 4vw, 2rem);
+  bottom: 3.2rem;
+  left: clamp(3rem, 7vw, 4rem);
   border: none;
   outline: none;
   resize: none;
   background: transparent;
   color: var(--ink);
-  font-family: var(--font-ui);
-  font-size: clamp(1.05rem, 2.2vw, 1.25rem);
-  line-height: 1.9rem;
-  letter-spacing: 0.02em;
+  font-family: var(--font-hand-zh), var(--font-hand-en), cursive;
+  font-size: clamp(1.55rem, 3.6vw, 2.05rem);
+  line-height: 1.55;
+  /* Canvas fillText has no letter-spacing — keep 0 so commit handoff matches */
+  letter-spacing: 0;
+  /* Match canvas wrapText (per-glyph) so line breaks don't jump on commit */
+  word-break: break-all;
+  overflow-wrap: anywhere;
   padding: 0;
   opacity: 0;
   pointer-events: none;
@@ -218,7 +282,16 @@ select {
   pointer-events: auto;
 }
 
-.type-layer:disabled {
+/* While sinking, JS owns opacity via inline style — do not force 1 here
+   (that caused a post-fade flash when inline opacity was cleared too early). */
+.type-layer.is-sinking {
+  color: var(--ink);
+  -webkit-text-fill-color: var(--ink);
+  pointer-events: none;
+  caret-color: transparent;
+}
+
+.type-layer:disabled:not(.is-sinking) {
   opacity: 0.55;
 }
 
@@ -242,10 +315,26 @@ select {
 
 .brand-mark {
   display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  user-select: none;
+}
+
+.brand-logo {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: block;
+  /* Match paper so only the nib mark reads */
+  border-radius: 0.35rem;
+}
+
+.brand-text {
+  display: flex;
   align-items: baseline;
   gap: 0.5rem;
   min-width: 0;
-  user-select: none;
 }
 
 .brand-zh {
@@ -274,6 +363,12 @@ select {
   justify-content: flex-end;
   align-items: center;
   gap: 0.15rem 0.55rem;
+}
+
+.edit-history {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.05rem;
 }
 
 /* Pen / type segmented control — paper-ink, not chrome pills */
@@ -486,6 +581,126 @@ select {
   animation: eink-pulse 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
+/* ——— Rotating dock tips ——— */
+
+.dock-hints {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dock-hint-stage {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.dock-hint-slide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
+  animation: dock-hint-in 480ms cubic-bezier(0.45, 0, 0.55, 1);
+}
+
+.dock-hint-slide.is-instant {
+  animation: none;
+}
+
+.dock-hint-text {
+  max-width: 100%;
+}
+
+.dock-hint-shiny {
+  max-width: 100%;
+}
+
+.dock-hint-dots {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+  padding-bottom: 0.15rem;
+}
+
+.dock-hint-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: oklch(0.4 0.012 255 / 0.22);
+}
+
+.dock-hint-dot.is-on {
+  background: oklch(0.32 0.016 255 / 0.55);
+}
+
+@keyframes dock-hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* React Bits–style shine, tuned for light paper */
+.shiny-text {
+  display: inline-block;
+  max-width: 100%;
+  background-image: linear-gradient(
+    120deg,
+    oklch(0.42 0.012 255 / 0.42) 0%,
+    oklch(0.42 0.012 255 / 0.42) 38%,
+    oklch(0.2 0.02 255 / 0.95) 50%,
+    oklch(0.42 0.012 255 / 0.42) 62%,
+    oklch(0.42 0.012 255 / 0.42) 100%
+  );
+  background-size: 200% auto;
+  background-position: 100% center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: shiny-sweep var(--shiny-speed, 2.4s) linear infinite;
+}
+
+@keyframes shiny-sweep {
+  to {
+    background-position: -100% center;
+  }
+}
+
+.embed-load {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.embed-load-track {
+  width: min(11rem, 42vw);
+  height: 1px;
+  background: oklch(0.4 0.012 255 / 0.16);
+  overflow: hidden;
+}
+
+.embed-load-fill {
+  height: 100%;
+  width: var(--embed-pct, 4%);
+  background: oklch(0.32 0.016 255 / 0.5);
+  transform-origin: left center;
+  transition: width 220ms cubic-bezier(0.45, 0, 0.55, 1);
+}
+
 .idle-ring {
   flex-shrink: 0;
   width: 24px;
@@ -504,13 +719,15 @@ select {
   transition: stroke-dashoffset 80ms linear;
 }
 
-/* Persistent transcription as a quiet paper quote — sits just above the reply */
-.read-as-quote {
+/* Persistent transcription as a quiet paper quote — sits just above the reply.
+   Nested under .reply-stage so Continue rise moves quote + reply together. */
+.reply-stage .read-as-quote {
   position: absolute;
-  top: max(4.5rem, calc(50% - 4.5rem));
-  left: clamp(1rem, 4vw, 2.25rem);
+  top: calc(max(4.5rem, calc(50% - 4.5rem)) + 20px);
+  /* Nudge off vertical grid lines so the quote rule doesn't sit on paper rules */
+  left: calc(clamp(1rem, 4vw, 2.25rem) + (var(--paper-step, 24px) * 0.5));
   right: clamp(1rem, 4vw, 2.25rem);
-  z-index: 4;
+  z-index: 2;
   margin: 0;
   max-width: min(36rem, 88%);
   padding: 0.1rem 0 0.1rem 0.75rem;
@@ -523,13 +740,19 @@ select {
   font-weight: 400;
   line-height: 1.55;
   letter-spacing: 0.02em;
-  color: oklch(0.36 0.014 255 / 0.4);
+  color: oklch(0.36 0.014 255 / 0.55);
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
   quotes: none;
-  transition: top 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: top 0.12s linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reply-stage .read-as-quote {
+    transition: none;
+  }
 }
 
 .phase-chip {
@@ -540,7 +763,6 @@ select {
   font-family: var(--font-ui-latin), sans-serif;
 }
 
-.paper-page.phase-fading::after,
 .paper-page.phase-thinking::after {
   content: "";
   position: absolute;
@@ -706,6 +928,30 @@ select {
   font-size: 0.85rem;
   color: var(--ink-soft);
   letter-spacing: 0.06em;
+}
+
+.help-lead {
+  position: relative;
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.help-list {
+  position: relative;
+  margin: 0;
+  padding: 0 0 0 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.help-list li::marker {
+  color: var(--ink-faint);
 }
 
 .settings-section-hint {
@@ -1167,6 +1413,295 @@ button.history-cal-cell:disabled {
   margin-top: 0.25rem;
 }
 
+/* Recall cite: prose + chips + margin note (not a thick card) */
+.recall-cite-stack {
+  position: absolute;
+  top: max(4.8rem, 14%);
+  left: clamp(3rem, 7vw, 4rem);
+  right: clamp(1rem, 4vw, 2rem);
+  z-index: 2;
+  max-width: min(36rem, 92%);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  animation: recall-cite-in 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.recall-cite-stack .read-as-quote.is-stacked {
+  position: relative;
+  top: auto;
+  left: auto;
+  right: auto;
+  max-width: none;
+  margin: 0;
+}
+
+.recall-cite {
+  position: relative;
+  top: auto;
+  left: auto;
+  right: auto;
+  z-index: auto;
+  max-width: none;
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recall-cite-stack {
+    animation: none;
+  }
+}
+
+@keyframes recall-cite-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.recall-cite-prose {
+  margin: 0;
+  font-family: var(--font-hand-zh), var(--font-hand-en), cursive;
+  font-size: clamp(1.05rem, 2.4vw, 1.35rem);
+  line-height: 1.7;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.recall-cite-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1em;
+  margin: 0 0.12em;
+  padding: 0 0.2em;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 28%, transparent);
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--font-ui-zh), var(--font-ui-latin), sans-serif;
+  font-size: 0.72em;
+  line-height: 1.2;
+  vertical-align: super;
+  cursor: pointer;
+}
+
+.recall-cite-mark.is-open {
+  color: var(--ink);
+  border-bottom-color: color-mix(in srgb, var(--ink) 55%, transparent);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.recall-cite-mark.is-inert {
+  cursor: default;
+  border-bottom: none;
+}
+
+.recall-cite-chips {
+  list-style: none;
+  margin: 1.1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.recall-cite-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-left: 1.5px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  background: transparent;
+  padding: 0.2rem 0 0.2rem 0.65rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font: inherit;
+}
+
+.recall-cite-chip.is-open {
+  border-left-color: color-mix(in srgb, var(--ink) 42%, transparent);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+.recall-cite-chip-n {
+  flex: 0 0 auto;
+  font-family: var(--font-ui-zh), var(--font-ui-latin), sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  margin-top: 0.15rem;
+}
+
+.recall-cite-chip-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.recall-cite-chip-date {
+  font-family: var(--font-ui-zh), var(--font-ui-latin), sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  color: var(--ink-faint);
+}
+
+.recall-cite-chip-body {
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recall-note {
+  position: fixed;
+  z-index: 40;
+  width: min(22rem, calc(100vw - 1.5rem));
+  max-height: min(48vh, 22rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.7rem 0.8rem 0.65rem;
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  /* 页边注：内侧淡墨竖线 + 轻边界，不做厚阴影卡片 */
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--ink) 32%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--paper) 80%, transparent);
+  pointer-events: auto;
+  animation: recall-note-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.recall-note-caret {
+  position: absolute;
+  left: var(--recall-caret-x, 50%);
+  width: 0.55rem;
+  height: 0.55rem;
+  background: var(--paper);
+  border-left: 1px solid var(--hairline);
+  border-top: 1px solid var(--hairline);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.recall-note.is-below .recall-note-caret {
+  top: -0.3rem;
+}
+
+.recall-note.is-above .recall-note-caret {
+  bottom: -0.3rem;
+  border-left: none;
+  border-top: none;
+  border-right: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+}
+
+@keyframes recall-note-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recall-note {
+    animation: none;
+  }
+}
+
+.recall-note-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.recall-note-index {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 40%, transparent);
+  font-family: var(--font-ui-zh), var(--font-ui-latin), sans-serif;
+  font-size: 0.72rem;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.recall-note-head-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.recall-note-kicker {
+  margin: 0;
+  font-family: var(--font-ui-zh), var(--font-ui-latin), sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+}
+
+.recall-note-date {
+  margin: 0.12rem 0 0;
+  font-family: var(--font-ui-zh), var(--font-ui-latin), sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.recall-note-scroll {
+  overflow: auto;
+  max-height: min(36vh, 16rem);
+  padding-right: 0.2rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.recall-note-label {
+  margin: 0.55rem 0 0.2rem;
+  font-family: var(--font-ui-zh), var(--font-ui-latin), sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+}
+
+.recall-note-label:first-child {
+  margin-top: 0;
+}
+
+.recall-note-body {
+  margin: 0;
+  font-family: var(--font-hand-zh), var(--font-hand-en), cursive;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.recall-note-close {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 0.72rem;
+}
+
 .history-list {
   list-style: none;
   margin: 0;
@@ -1246,12 +1781,27 @@ button.history-cal-cell:disabled {
 
 @media (prefers-reduced-motion: reduce) {
   .status-text.is-pulse,
-  .paper-page.phase-fading::after,
+  .submit-hint.is-pulse,
   .paper-page.phase-thinking::after,
   .settings-backdrop,
   .settings-sheet,
   .history-panel {
     animation: none;
     transition: opacity 100ms linear;
+  }
+
+  .embed-load-fill {
+    transition: none;
+  }
+
+  .dock-hint-slide,
+  .shiny-text {
+    animation: none;
+  }
+
+  .shiny-text {
+    background: none;
+    -webkit-text-fill-color: var(--ink-soft);
+    color: var(--ink-soft);
   }
 }
