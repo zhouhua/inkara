@@ -198,20 +198,22 @@
 ### 7.8 Non-Goals
 
 - 云同步 / 多设备  
-- 语义向量搜索  
+- 对话态 RAG 注入（answer 仍只用近期 CONTEXT_PAGES；检索增强仅用于找页）  
 - 多本日记  
 - 回顾态专用「接着写」按钮（已由全站继续写 + 重现后可写覆盖）  
 - PRD-02 语气微调  
 - 把回顾做成双栏笔记编辑器  
 
+**v1.1（已纳入）：** 墨迹召回与旧页搜索采用 **词检索 ∪ 本地向量 ∪（墨迹路径）LLM 重排**；不做云端向量库。
 ### 7.9 Technology（示意）
 
-- `src/lib/memory.ts`：软顶 5000；`getPageById`  
-- `src/lib/recall.ts`：`findMemoriesByQuery` → top-N  
-- `src/components/HistoryPanel.tsx`：搜索 + 记忆重现回调  
-- `src/components/InkPage.tsx`：续写层、情境按钮、多候选 UI、与 `pageToolsVisible` 整合  
-- `src/lib/i18n.ts` + `globals.css`：文案与上移淡出动效（尊重 reduced-motion）  
-
+- `src/lib/memory.ts`：软顶 5000；`getPageById`；嵌入索引挂钩  
+- `src/lib/embeddings.ts` + IDB `embeddings` store：本地 multilingual-e5  
+- `src/lib/recall.ts`：`hybridRetrieve` → top-N；LLM 重排后 `resolveRecallHitsFromRanked`  
+- `src/app/api/recall-rank/route.ts`：候选重排  
+- `src/components/HistoryPanel.tsx`：混检搜索（无 LLM）+ 记忆重现回调  
+- `src/components/InkPage.tsx`：续写层、情境按钮、多候选 UI、召回混检+重排  
+- `src/lib/i18n.ts` + `globals.css`：文案与上移淡出动效（尊重 reduced-motion）
 ### 7.10 Assumptions
 
 - 「继续写」的上移淡出足够表达上下文延续，无需聊天气泡。  
@@ -224,8 +226,8 @@
 | 阶段 | 范围 | 相对工期 |
 |------|------|----------|
 | **MVP** | 搜索、记忆重现、多匹配、继续写、清页/新篇章情境钮、导出保留、软顶 5000、miss 文案 | 约 3–5 天（大于原估，因会话模型） |
-| v1.1 | 多匹配算法调参、动效微调 | 约 1 天 |
-| 不做 | 云端分页、账号 |
+| **v1.1** | 混检（词 ∪ 本地嵌入）+ 墨迹召回 LLM 重排；History 搜索混检无 LLM | 约 2–3 天 |
+| 不做 | 云端分页、账号、对话态 RAG 注入 |
 
 **建议实现顺序：**
 

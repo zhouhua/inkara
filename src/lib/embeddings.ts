@@ -3,6 +3,58 @@
 export const EMBEDDING_MODEL = "Xenova/multilingual-e5-small";
 export const EMBEDDING_TEXT_MAX = 768;
 
+/** Official Hub — often blocked / times out in CN; mirror is the fallback. */
+export const HF_REMOTE_HOST_DEFAULT = "https://huggingface.co/";
+export const HF_REMOTE_HOST_MIRROR = "https://hf-mirror.com/";
+
+function normalizeRemoteHost(host: string): string {
+  const trimmed = host.trim();
+  if (!trimmed) return HF_REMOTE_HOST_DEFAULT;
+  return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
+}
+
+/**
+ * Pick a Hub host that actually returns model JSON (not an HTML interstitial).
+ * Override with NEXT_PUBLIC_HF_REMOTE_HOST when needed.
+ */
+export async function resolveHfRemoteHost(
+  fetchImpl: typeof fetch = fetch
+): Promise<string> {
+  const override = process.env.NEXT_PUBLIC_HF_REMOTE_HOST;
+  if (override?.trim()) return normalizeRemoteHost(override);
+
+  const candidates = [HF_REMOTE_HOST_DEFAULT, HF_REMOTE_HOST_MIRROR];
+  for (const host of candidates) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2500);
+    try {
+      const res = await fetchImpl(
+        `${host}${EMBEDDING_MODEL}/resolve/main/config.json`,
+        { signal: ctrl.signal, headers: { Accept: "application/json" } }
+      );
+      if (!res.ok) continue;
+      const ct = res.headers.get("content-type") ?? "";
+      if (ct.includes("text/html")) {
+        try {
+          await res.body?.cancel();
+        } catch {
+          /* ignore */
+        }
+        continue;
+      }
+      const text = await res.text();
+      if (text.trimStart().startsWith("<")) continue;
+      JSON.parse(text);
+      return host;
+    } catch {
+      /* try next candidate */
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return HF_REMOTE_HOST_MIRROR;
+}
+
 type FeatureExtractor = (
   text: string | string[],
   options?: { pooling?: string; normalize?: boolean }
@@ -109,8 +161,12 @@ async function loadExtractor(): Promise<FeatureExtractor | null> {
   if (typeof window === "undefined") return null;
   setLoadState({ status: "loading", progress: 0 });
   try {
+    const remoteHost = await resolveHfRemoteHost();
     const { pipeline, env } = await import("@huggingface/transformers");
+    // SPA HTML 404s look like JSON to transformers.js — never probe local paths.
     env.allowLocalModels = false;
+    env.allowRemoteModels = true;
+    env.remoteHost = remoteHost;
     // Bundle must not ship ORT asyncify wasm (>25 MiB Cloudflare Workers limit).
     // Force CDN paths so inference still works after strip/emit:false.
     const ortWeb = (
