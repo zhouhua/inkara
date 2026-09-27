@@ -2,6 +2,8 @@
 
 用鼠标或手写笔在纸上书写。停笔片刻后，墨迹渗入纸中，页面思考，再以手写笔迹浮现回答。
 
+**线上体验：** [https://inkara.zhouhua.site](https://inkara.zhouhua.site)
+
 灵感来自 [riddle](https://github.com/MaximeRivest/riddle)，面向 Web，技术栈为 Next.js；模型走 OpenAI 兼容接口。
 
 ## 功能
