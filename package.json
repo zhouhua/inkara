@@ -4,15 +4,24 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "preview": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare deploy",
+    "upload": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare upload",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.55",
+    "@huggingface/transformers": "^4.3.0",
+    "@opennextjs/cloudflare": "^1.20.6",
+    "ai": "^7.0.114",
     "next": "16.3.5",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "reicon-react": "^1.2.5"
+    "reicon-react": "^1.2.5",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -22,6 +31,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^4.141.0"
   }
 }
