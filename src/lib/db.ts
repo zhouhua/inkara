@@ -1,11 +1,12 @@
 /** IndexedDB persistence with in-memory cache. Call hydrateDb() once on startup. */
 
 const DB_NAME = "inkara";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const SETTINGS_STORE = "settings";
 const MEMORY_STORE = "memory";
 const QUOTA_STORE = "quota";
+const EMBEDDINGS_STORE = "embeddings";
 
 const SETTINGS_KEY = "app";
 const QUOTA_KEY = "daily";
@@ -16,11 +17,22 @@ export type QuotaRecord = {
   count: number;
 };
 
+export type EmbeddingRecord = {
+  id: string;
+  dims: number;
+  vector: number[];
+  model: string;
+};
+
 type DbCache = {
   hydrated: boolean;
   settingsRaw: unknown | null;
   memoryRaw: unknown | null;
   quota: QuotaRecord;
+  embeddings: Map<string, EmbeddingRecord>;
+  /** Last IDB snapshot (even when dirty keeps a different live value). */
+  idbSettingsSnapshot: unknown | null;
+  idbMemorySnapshot: unknown | null;
 };
 
 const cache: DbCache = {
@@ -28,10 +40,57 @@ const cache: DbCache = {
   settingsRaw: null,
   memoryRaw: null,
   quota: { date: "", count: 0 },
+  embeddings: new Map(),
+  idbSettingsSnapshot: null,
+  idbMemorySnapshot: null,
 };
+
+/** In-memory edits that must not be clobbered by hydrate's IDB snapshot. */
+let settingsDirty = false;
+let memoryDirty = false;
+let quotaDirty = false;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 let hydratePromise: Promise<void> | null = null;
+let settingsWriteChain: Promise<void> = Promise.resolve();
+let memoryWriteChain: Promise<void> = Promise.resolve();
+let quotaWriteChain: Promise<void> = Promise.resolve();
+
+const readyWaiters: Array<() => void> = [];
+
+function notifyDbReady() {
+  const waiters = readyWaiters.splice(0);
+  for (const w of waiters) w();
+}
+
+/** Resolves once IndexedDB cache has been hydrated (or immediately if already). */
+export function whenDbReady(): Promise<void> {
+  if (cache.hydrated) return Promise.resolve();
+  return new Promise((resolve) => {
+    readyWaiters.push(resolve);
+  });
+}
+
+export function markSettingsDirty() {
+  settingsDirty = true;
+}
+
+export function markMemoryDirty() {
+  memoryDirty = true;
+}
+
+export function markQuotaDirty() {
+  quotaDirty = true;
+}
+
+export function isSettingsDirty() {
+  return settingsDirty;
+}
+
+export function isMemoryDirty() {
+  return memoryDirty;
+}
+
 
 function openDb(): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") {
@@ -51,6 +110,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(QUOTA_STORE)) {
         db.createObjectStore(QUOTA_STORE);
+      }
+      if (!db.objectStoreNames.contains(EMBEDDINGS_STORE)) {
+        db.createObjectStore(EMBEDDINGS_STORE);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -80,6 +142,42 @@ function idbPut(store: string, key: string, value: unknown): Promise<void> {
         tx.objectStore(store).put(value, key);
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
+      })
+  );
+}
+
+function idbDelete(store: string, key: string): Promise<void> {
+  return openDb().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(store, "readwrite");
+        tx.objectStore(store).delete(key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+  );
+}
+
+function idbClear(store: string): Promise<void> {
+  return openDb().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(store, "readwrite");
+        tx.objectStore(store).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      })
+  );
+}
+
+function idbGetAll<T>(store: string): Promise<T[]> {
+  return openDb().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(store, "readonly");
+        const req = tx.objectStore(store).getAll();
+        req.onsuccess = () => resolve((req.result as T[]) ?? []);
+        req.onerror = () => reject(req.error);
       })
   );
 }
@@ -158,35 +256,103 @@ export function getCachedQuota(): QuotaRecord {
 }
 
 export async function writeSettingsRaw(value: unknown): Promise<void> {
-  await hydrateDb();
+  settingsDirty = true;
   cache.settingsRaw = value;
-  if (typeof indexedDB === "undefined") return;
-  try {
-    await idbPut(SETTINGS_STORE, SETTINGS_KEY, value);
-  } catch (error) {
-    console.error("Failed to persist settings:", error);
-  }
+  const run = async () => {
+    await hydrateDb();
+    // Always persist the latest dirty snapshot (newer writes may have replaced it).
+    const toWrite = cache.settingsRaw;
+    if (typeof indexedDB === "undefined") return;
+    try {
+      await idbPut(SETTINGS_STORE, SETTINGS_KEY, toWrite);
+    } catch (error) {
+      console.error("Failed to persist settings:", error);
+    }
+  };
+  settingsWriteChain = settingsWriteChain.then(run, run);
+  return settingsWriteChain;
 }
 
 export async function writeMemoryRaw(value: unknown): Promise<void> {
-  await hydrateDb();
+  memoryDirty = true;
   cache.memoryRaw = value;
-  if (typeof indexedDB === "undefined") return;
-  try {
-    await idbPut(MEMORY_STORE, MEMORY_LIST_KEY, value);
-  } catch (error) {
-    console.error("Failed to persist memory:", error);
-  }
+  const run = async () => {
+    await hydrateDb();
+    const toWrite = cache.memoryRaw;
+    if (typeof indexedDB === "undefined") return;
+    try {
+      await idbPut(MEMORY_STORE, MEMORY_LIST_KEY, toWrite);
+    } catch (error) {
+      console.error("Failed to persist memory:", error);
+    }
+  };
+  memoryWriteChain = memoryWriteChain.then(run, run);
+  return memoryWriteChain;
 }
 
 export async function writeQuota(value: QuotaRecord): Promise<void> {
-  await hydrateDb();
+  quotaDirty = true;
   cache.quota = value;
+  const run = async () => {
+    await hydrateDb();
+    const toWrite = cache.quota;
+    if (typeof indexedDB === "undefined") return;
+    try {
+      await idbPut(QUOTA_STORE, QUOTA_KEY, toWrite);
+    } catch (error) {
+      console.error("Failed to persist quota:", error);
+    }
+  };
+  quotaWriteChain = quotaWriteChain.then(run, run);
+  return quotaWriteChain;
+}
+
+function isEmbeddingRecord(v: unknown): v is EmbeddingRecord {
+  if (!v || typeof v !== "object") return false;
+  const r = v as EmbeddingRecord;
+  return (
+    typeof r.id === "string" &&
+    typeof r.dims === "number" &&
+    Array.isArray(r.vector) &&
+    typeof r.model === "string"
+  );
+}
+
+/** Sync snapshot of cached embeddings (after hydrate). */
+export function getCachedEmbeddings(): Map<string, EmbeddingRecord> {
+  return cache.embeddings;
+}
+
+export async function putEmbedding(record: EmbeddingRecord): Promise<void> {
+  await hydrateDb();
+  cache.embeddings.set(record.id, record);
   if (typeof indexedDB === "undefined") return;
   try {
-    await idbPut(QUOTA_STORE, QUOTA_KEY, value);
+    await idbPut(EMBEDDINGS_STORE, record.id, record);
   } catch (error) {
-    console.error("Failed to persist quota:", error);
+    console.error("Failed to persist embedding:", error);
+  }
+}
+
+export async function deleteEmbedding(id: string): Promise<void> {
+  await hydrateDb();
+  cache.embeddings.delete(id);
+  if (typeof indexedDB === "undefined") return;
+  try {
+    await idbDelete(EMBEDDINGS_STORE, id);
+  } catch (error) {
+    console.error("Failed to delete embedding:", error);
+  }
+}
+
+export async function clearEmbeddings(): Promise<void> {
+  await hydrateDb();
+  cache.embeddings.clear();
+  if (typeof indexedDB === "undefined") return;
+  try {
+    await idbClear(EMBEDDINGS_STORE);
+  } catch (error) {
+    console.error("Failed to clear embeddings:", error);
   }
 }
 
@@ -201,6 +367,7 @@ export function hydrateDb(): Promise<void> {
   hydratePromise = (async () => {
     if (typeof window === "undefined") {
       cache.hydrated = true;
+      notifyDbReady();
       return;
     }
 
@@ -227,24 +394,43 @@ export function hydrateDb(): Promise<void> {
         }
       }
 
-      cache.settingsRaw = settingsRaw ?? null;
-      cache.memoryRaw = memoryRaw ?? null;
-      cache.quota =
-        quotaRaw && typeof quotaRaw.date === "string"
-          ? {
-              date: quotaRaw.date,
-              count: typeof quotaRaw.count === "number" ? quotaRaw.count : 0,
-            }
-          : { date: "", count: 0 };
+      if (!settingsDirty) {
+        cache.settingsRaw = settingsRaw ?? null;
+      }
+      if (!memoryDirty) {
+        cache.memoryRaw = memoryRaw ?? null;
+      }
+      if (!quotaDirty) {
+        cache.quota =
+          quotaRaw && typeof quotaRaw.date === "string"
+            ? {
+                date: quotaRaw.date,
+                count: typeof quotaRaw.count === "number" ? quotaRaw.count : 0,
+              }
+            : { date: "", count: 0 };
+      }
+
+      try {
+        const rows = await idbGetAll<unknown>(EMBEDDINGS_STORE);
+        const map = new Map<string, EmbeddingRecord>();
+        for (const row of rows) {
+          if (isEmbeddingRecord(row)) map.set(row.id, row);
+        }
+        cache.embeddings = map;
+      } catch {
+        cache.embeddings = new Map();
+      }
     } catch (error) {
       console.error("IndexedDB hydrate failed:", error);
       const legacy = readLegacyLocalStorage();
-      cache.settingsRaw = legacy.settings;
-      cache.memoryRaw = legacy.memory;
-      cache.quota = { date: "", count: 0 };
+      if (!settingsDirty) cache.settingsRaw = legacy.settings;
+      if (!memoryDirty) cache.memoryRaw = legacy.memory;
+      if (!quotaDirty) cache.quota = { date: "", count: 0 };
+      cache.embeddings = new Map();
     }
 
     cache.hydrated = true;
+    notifyDbReady();
   })();
 
   return hydratePromise;

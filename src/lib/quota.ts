@@ -40,6 +40,8 @@ export function getFreeAskCount(): number {
 }
 
 export function canUseFreeAsk(): boolean {
+  // Until quota is hydrated, deny free asks so we never overrun after a stale 0.
+  if (!isDbHydrated()) return false;
   return getFreeAskCount() < FREE_DAILY_LIMIT;
 }
 

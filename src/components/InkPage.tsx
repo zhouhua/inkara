@@ -86,7 +86,7 @@ import {
   hydrateSettings,
   idleMsFor,
   loadSettings,
-  saveSettings,
+  patchSettings,
   type AppSettings,
   type InputMode,
 } from "@/lib/settings";
@@ -220,6 +220,8 @@ export function InkPage() {
       // Don't clobber in-session edits that landed before hydrate finished.
       if (!settingsDirtyRef.current) {
         setSettings(nextSettings);
+        settingsRef.current = nextSettings;
+        setInputMode(nextSettings.inputMode);
       }
       setMemoryCount(pages.length);
       dbReadyRef.current = true;
@@ -319,6 +321,21 @@ export function InkPage() {
     setIdleProgress(0);
     setIdleArmed(false);
   }, []);
+
+  const applySettingsPatch = useCallback(
+    (patch: Partial<AppSettings>) => {
+      settingsDirtyRef.current = true;
+      const next = patchSettings(patch);
+      // Sync ref immediately so idle auto-submit cannot race on a stale mode.
+      settingsRef.current = next;
+      setSettings(next);
+      if (next.submitMode !== "auto") {
+        clearIdle();
+      }
+      return next;
+    },
+    [clearIdle]
+  );
 
   const syncEditHistory = useCallback((mode: InputMode) => {
     if (mode === "pen") {
@@ -1260,14 +1277,7 @@ export function InkPage() {
     setInkSinking(true);
     const cached = loadSettings();
     if (!cached.hasCommittedOnce) {
-      const next = {
-        ...cached,
-        hasCommittedOnce: true,
-      };
-      settingsDirtyRef.current = true;
-      settingsRef.current = next;
-      setSettings(next);
-      saveSettings(next);
+      applySettingsPatch({ hasCommittedOnce: true });
     }
     clearReadAs();
     setStatusExtra(null);
@@ -1322,6 +1332,7 @@ export function InkPage() {
     await askPromise;
   }, [
     awaitingContinue,
+    applySettingsPatch,
     clearIdle,
     clearReadAs,
     hasContent,
@@ -1738,6 +1749,7 @@ export function InkPage() {
     setEditHistory({ undo: 0, redo: 0 });
 
     setInputMode(mode);
+    applySettingsPatch({ inputMode: mode });
 
     const stillWriting =
       mode === "pen"
@@ -2280,11 +2292,9 @@ export function InkPage() {
         open={settingsOpen}
         settings={settings}
         onClose={() => setSettingsOpen(false)}
-        onChange={(next) => {
+        onPatch={(patch) => {
           if (!dbReadyRef.current) return;
-          settingsDirtyRef.current = true;
-          setSettings(next);
-          saveSettings(next);
+          applySettingsPatch(patch);
         }}
         onClearMemory={() => {
           if (!dbReadyRef.current) return;

@@ -17,7 +17,8 @@ type Props = {
   open: boolean;
   settings: AppSettings;
   onClose: () => void;
-  onChange: (next: AppSettings) => void;
+  /** Field-level patch — parent merges against persisted cache, not stale props. */
+  onPatch: (patch: Partial<AppSettings>) => void;
   onClearMemory: () => void;
 };
 
@@ -27,7 +28,7 @@ export function SettingsPanel({
   open,
   settings,
   onClose,
-  onChange,
+  onPatch,
   onClearMemory,
 }: Props) {
   const titleId = useId();
@@ -47,11 +48,11 @@ export function SettingsPanel({
     onClose();
   };
 
-  const patchApi = (next: AppSettings) => {
+  const patchApi = (patch: Partial<AppSettings>) => {
     setFieldErrors({});
     setProbeUi("idle");
     setProbeMessage("");
-    onChange(next);
+    onPatch(patch);
   };
 
   const onTestConnection = async () => {
@@ -107,7 +108,7 @@ export function SettingsPanel({
           <select
             value={settings.locale}
             onChange={(e) =>
-              onChange({ ...settings, locale: e.target.value as Locale })
+              onPatch({ locale: e.target.value as Locale })
             }
           >
             <option value="zh">{t(settings.locale, "localeZh")}</option>
@@ -120,10 +121,7 @@ export function SettingsPanel({
           <select
             value={settings.submitMode}
             onChange={(e) =>
-              onChange({
-                ...settings,
-                submitMode: e.target.value as SubmitMode,
-              })
+              onPatch({ submitMode: e.target.value as SubmitMode })
             }
           >
             <option value="manual">{t(settings.locale, "submitManual")}</option>
@@ -137,10 +135,7 @@ export function SettingsPanel({
             <select
               value={settings.idlePace}
               onChange={(e) =>
-                onChange({
-                  ...settings,
-                  idlePace: e.target.value as IdlePace,
-                })
+                onPatch({ idlePace: e.target.value as IdlePace })
               }
             >
               <option value="fast">{t(settings.locale, "idleFast")}</option>
@@ -155,10 +150,7 @@ export function SettingsPanel({
           <select
             value={settings.showReadAs ? "on" : "off"}
             onChange={(e) =>
-              onChange({
-                ...settings,
-                showReadAs: e.target.value === "on",
-              })
+              onPatch({ showReadAs: e.target.value === "on" })
             }
           >
             <option value="on">{t(settings.locale, "showReadAsOn")}</option>
@@ -169,9 +161,7 @@ export function SettingsPanel({
         <PaperPicker
           locale={settings.locale}
           value={settings.paperStyle}
-          onChange={(paperStyle: PaperStyleId) =>
-            onChange({ ...settings, paperStyle })
-          }
+          onChange={(paperStyle: PaperStyleId) => onPatch({ paperStyle })}
         />
 
         <div className="settings-section">
@@ -190,9 +180,7 @@ export function SettingsPanel({
               spellCheck={false}
               placeholder={t(settings.locale, "apiKeyPlaceholder")}
               value={settings.apiKey}
-              onChange={(e) =>
-                patchApi({ ...settings, apiKey: e.target.value })
-              }
+              onChange={(e) => patchApi({ apiKey: e.target.value })}
             />
             {fieldErrors.apiKey ? (
               <span className="settings-field-error">
@@ -209,9 +197,7 @@ export function SettingsPanel({
               spellCheck={false}
               placeholder={t(settings.locale, "apiEndpointPlaceholder")}
               value={settings.baseUrl}
-              onChange={(e) =>
-                patchApi({ ...settings, baseUrl: e.target.value })
-              }
+              onChange={(e) => patchApi({ baseUrl: e.target.value })}
             />
             {fieldErrors.baseUrl ? (
               <span className="settings-field-error">
@@ -228,9 +214,7 @@ export function SettingsPanel({
               spellCheck={false}
               placeholder={t(settings.locale, "apiModelPlaceholder")}
               value={settings.model}
-              onChange={(e) =>
-                patchApi({ ...settings, model: e.target.value })
-              }
+              onChange={(e) => patchApi({ model: e.target.value })}
             />
           </label>
 

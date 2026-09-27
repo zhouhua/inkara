@@ -32,13 +32,20 @@ export type AskStreamHandlers = {
  */
 export async function askPageStream(
   body: {
-    image: string;
+    image?: string;
     locale: "zh" | "en";
     memory: unknown[];
     typedText?: string;
     apiKey?: string;
     baseUrl?: string;
     model?: string;
+    recallMode?: "cite" | "miss";
+    recallPages?: Array<{
+      transcription: string;
+      reply: string;
+      createdAt: number;
+    }>;
+    fixedTranscription?: string;
   },
   handlers: AskStreamHandlers = {},
   init?: { signal?: AbortSignal }

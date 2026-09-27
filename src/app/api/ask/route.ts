@@ -1,15 +1,23 @@
 import {
+  buildRecallCiteSystemPrompt,
+  buildRecallCiteUserText,
+  buildRecallMissSystemPrompt,
+  buildRecallMissUserText,
   buildSystemPrompt,
   buildUserText,
   type MemoryTurn,
+  type RecallCitePageInput,
 } from "@/lib/prompts";
-import { createJsonReplyExtractor } from "@/lib/json-reply-stream";
+import { askObjectSchema } from "@/lib/ask-schema";
+import { createLlmModel, resolveLlmCredentials } from "@/lib/llm";
+import { APICallError, Output, streamText } from "ai";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 type AskBody = {
-  image: string;
+  /** Page snapshot — required for pen mode; omit when typedText is set */
+  image?: string;
   locale?: "zh" | "en";
   memory?: MemoryTurn[];
   /** Authoritative typed input when user used keyboard mode */
@@ -18,6 +26,13 @@ type AskBody = {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  /**
+   * Second-pass recall: cite found pages, or answer after a silent miss.
+   * When set, typedText (or fixedTranscription) is required; image optional.
+   */
+  recallMode?: "cite" | "miss";
+  recallPages?: RecallCitePageInput[];
+  fixedTranscription?: string;
 };
 
 type StreamEvent =
@@ -32,6 +47,13 @@ type StreamEvent =
     }
   | { type: "error"; error: string; message?: string };
 
+type UserContent =
+  | string
+  | Array<
+      | { type: "text"; text: string }
+      | { type: "image"; image: string }
+    >;
+
 export async function POST(req: Request) {
   let body: AskBody;
   try {
@@ -40,140 +62,92 @@ export async function POST(req: Request) {
     return jsonError({ error: "invalid_json" }, 400);
   }
 
-  if (!body.image || typeof body.image !== "string") {
-    return jsonError({ error: "missing_image" }, 400);
-  }
-
-  const userApiKey =
-    typeof body.apiKey === "string" ? body.apiKey.trim() : "";
-  const apiKey =
-    userApiKey ||
-    process.env.MODEL_API_KEY ||
-    process.env.DASHSCOPE_API_KEY ||
-    "";
-  if (!apiKey) {
-    return jsonError(
-      {
-        error: "missing_api_key",
-        message: "MODEL_API_KEY is not configured",
-      },
-      500
-    );
-  }
-
   const locale = body.locale === "en" ? "en" : "zh";
   const memory = Array.isArray(body.memory) ? body.memory.slice(-8) : [];
   const typedText =
     typeof body.typedText === "string" ? body.typedText.trim() : "";
+  const fixedTranscription =
+    typeof body.fixedTranscription === "string"
+      ? body.fixedTranscription.trim()
+      : "";
+  const recallMode =
+    body.recallMode === "cite" || body.recallMode === "miss"
+      ? body.recallMode
+      : null;
+  const recallPages = Array.isArray(body.recallPages)
+    ? body.recallPages
+        .filter(
+          (p): p is RecallCitePageInput =>
+            !!p &&
+            typeof p === "object" &&
+            typeof p.transcription === "string" &&
+            typeof p.reply === "string" &&
+            typeof p.createdAt === "number"
+        )
+        .slice(0, 3)
+    : [];
+  const hasImage = typeof body.image === "string" && body.image.length > 0;
+  const recallText = fixedTranscription || typedText;
 
-  const userBaseUrl =
-    typeof body.baseUrl === "string" ? body.baseUrl.trim() : "";
-  const baseUrl = (
-    userBaseUrl ||
-    process.env.MODEL_BASE_URL ||
-    process.env.DASHSCOPE_BASE_URL ||
-    ""
-  ).replace(/\/$/, "");
-  if (!baseUrl) {
+  if (recallMode) {
+    if (!recallText) {
+      return jsonError({ error: "missing_image" }, 400);
+    }
+    if (recallMode === "cite" && recallPages.length === 0) {
+      return jsonError({ error: "invalid_json" }, 400);
+    }
+  } else if (!typedText && !hasImage) {
+    return jsonError({ error: "missing_image" }, 400);
+  }
+
+  const resolved = resolveLlmCredentials({
+    apiKey: body.apiKey,
+    baseUrl: body.baseUrl,
+    model: body.model,
+  });
+  if (!resolved.ok) {
     return jsonError(
-      {
-        error: "missing_base_url",
-        message: "MODEL_BASE_URL is not configured",
-      },
+      { error: resolved.error, message: resolved.message },
       500
     );
   }
-
-  const userModel = typeof body.model === "string" ? body.model.trim() : "";
-  const model =
-    userModel ||
-    process.env.MODEL_NAME ||
-    process.env.DASHSCOPE_MODEL ||
-    "";
-  if (!model) {
-    return jsonError(
-      {
-        error: "missing_model",
-        message: "MODEL_NAME is not configured",
-      },
-      500
-    );
-  }
-
-  const imageUrl = body.image.startsWith("data:")
-    ? body.image
-    : `data:image/png;base64,${body.image}`;
 
   const quietFallback =
     locale === "zh" ? "纸面一时无言。" : "The page stayed quiet.";
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.75,
-        max_tokens: 800,
-        stream: true,
-        messages: [
-          { role: "system", content: buildSystemPrompt(locale) },
+  let systemContent: string;
+  let userContent: UserContent;
+  let seedTranscription = typedText;
+
+  if (recallMode === "cite") {
+    systemContent = buildRecallCiteSystemPrompt(locale);
+    userContent = buildRecallCiteUserText(locale, recallText, recallPages);
+    seedTranscription = recallText;
+  } else if (recallMode === "miss") {
+    systemContent = buildRecallMissSystemPrompt(locale);
+    userContent = buildRecallMissUserText(locale, recallText);
+    seedTranscription = recallText;
+  } else {
+    const userText = buildUserText(locale, memory, typedText || undefined);
+    systemContent = buildSystemPrompt(locale);
+    seedTranscription = typedText;
+    userContent = typedText
+      ? userText
+      : [
           {
-            role: "user",
-            content: [
-              { type: "image_url", image_url: { url: imageUrl } },
-              {
-                type: "text",
-                text: buildUserText(locale, memory, typedText || undefined),
-              },
-            ],
+            type: "image",
+            image: body.image!.startsWith("data:")
+              ? body.image!
+              : `data:image/png;base64,${body.image}`,
           },
-        ],
-      }),
-    });
-  } catch (error) {
-    console.error("Ask route failed:", error);
-    return jsonError(
-      {
-        error: "request_failed",
-        message: error instanceof Error ? error.message : "unknown",
-      },
-      500
-    );
+          { type: "text", text: userText },
+        ];
   }
 
-  if (!upstream.ok) {
-    const errText = await upstream.text();
-    console.error("Upstream model error:", upstream.status, errText);
-    const code =
-      upstream.status === 401 || upstream.status === 403
-        ? "unauthorized"
-        : "upstream_error";
-    return jsonError(
-      {
-        error: code,
-        message: code === "unauthorized" ? "unauthorized" : "upstream",
-      },
-      code === "unauthorized" ? 401 : 502
-    );
-  }
-
-  if (!upstream.body) {
-    return jsonError({ error: "empty_upstream" }, 502);
-  }
+  const forceAnswer = recallMode != null;
+  const model = createLlmModel(resolved.creds);
 
   const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  const extractor = createJsonReplyExtractor();
-  let sseBuf = "";
-  let metaSent = false;
-  let finalTranscription = typedText;
-  let finalReply = "";
-
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: StreamEvent) => {
@@ -182,98 +156,79 @@ export async function POST(req: Request) {
         );
       };
 
+      let metaSent = false;
+      let finalTranscription = seedTranscription;
+      let finalReply = "";
+      let emittedReply = "";
+
       try {
-        const reader = upstream.body!.getReader();
+        const result = streamText({
+          model,
+          system: systemContent,
+          messages: [{ role: "user", content: userContent }],
+          temperature: 0.75,
+          maxOutputTokens: 1600,
+          output: Output.object({
+            name: "InkAsk",
+            description:
+              "Ink diary turn: transcription, reply, intent, and optional recall needle",
+            schema: askObjectSchema,
+          }),
+          onError({ error }) {
+            console.error("Ask streamText error:", error);
+          },
+        });
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        for await (const partial of result.partialOutputStream) {
+          const transcription =
+            typeof partial.transcription === "string"
+              ? partial.transcription
+              : undefined;
+          const reply =
+            typeof partial.reply === "string" ? partial.reply : undefined;
 
-          sseBuf += decoder.decode(value, { stream: true });
-          const chunks = sseBuf.split("\n");
-          sseBuf = chunks.pop() ?? "";
-
-          for (const line of chunks) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) continue;
-            const payload = trimmed.slice(5).trim();
-            if (!payload || payload === "[DONE]") continue;
-
-            let piece = "";
-            try {
-              const parsed = JSON.parse(payload) as {
-                choices?: Array<{ delta?: { content?: string } }>;
-              };
-              piece = parsed.choices?.[0]?.delta?.content ?? "";
-            } catch {
-              continue;
-            }
-            if (!piece) continue;
-
-            const extracted = extractor.push(piece);
-            if (
-              extracted.transcription !== null &&
-              !metaSent &&
-              extracted.transcription !== ""
-            ) {
+          if (transcription !== undefined) {
+            finalTranscription = transcription;
+            if (!metaSent && transcription !== "") {
               metaSent = true;
-              finalTranscription = extracted.transcription;
-              send({ type: "meta", transcription: extracted.transcription });
-            } else if (extracted.transcription !== null) {
-              finalTranscription = extracted.transcription;
+              send({ type: "meta", transcription });
             }
+          }
 
-            if (extracted.deltas) {
-              finalReply = extracted.reply;
-              send({ type: "delta", text: extracted.deltas });
-            } else {
-              finalReply = extracted.reply || finalReply;
-            }
+          if (reply !== undefined && reply.length > emittedReply.length) {
+            const deltas = reply.slice(emittedReply.length);
+            emittedReply = reply;
+            finalReply = reply;
+            if (deltas) send({ type: "delta", text: deltas });
           }
         }
 
-        // Flush incomplete SSE line if any
-        if (sseBuf.trim()) {
-          const trimmed = sseBuf.trim();
-          if (trimmed.startsWith("data:")) {
-            const payload = trimmed.slice(5).trim();
-            if (payload && payload !== "[DONE]") {
-              try {
-                const parsed = JSON.parse(payload) as {
-                  choices?: Array<{ delta?: { content?: string } }>;
-                };
-                const piece = parsed.choices?.[0]?.delta?.content ?? "";
-                if (piece) {
-                  const extracted = extractor.push(piece);
-                  if (extracted.deltas) {
-                    finalReply = extracted.reply;
-                    send({ type: "delta", text: extracted.deltas });
-                  }
-                  if (extracted.transcription !== null) {
-                    finalTranscription = extracted.transcription;
-                  }
-                }
-              } catch {
-                /* ignore */
-              }
-            }
-          }
-        }
-
-        const raw = extractor.getRaw().trim();
-        const parsed = parseModelJson(raw);
         let intent: "answer" | "recall" = "answer";
         let recallQuery = "";
 
-        if (parsed) {
-          finalTranscription = parsed.transcription || finalTranscription;
-          finalReply = parsed.reply || finalReply;
-          intent = parsed.intent;
-          recallQuery = parsed.recallQuery;
-        } else if (!finalReply && raw) {
-          // Model returned prose instead of JSON — treat as reply
-          finalReply = raw;
-          send({ type: "delta", text: raw });
+        try {
+          const output = await result.output;
+          if (output) {
+            finalTranscription =
+              output.transcription.trim() || finalTranscription;
+            finalReply = output.reply.trim() || finalReply;
+            intent = forceAnswer ? "answer" : output.intent;
+            recallQuery = forceAnswer ? "" : output.recallQuery.trim();
+
+            if (finalReply.length > emittedReply.length) {
+              const deltas = finalReply.slice(emittedReply.length);
+              emittedReply = finalReply;
+              if (deltas) send({ type: "delta", text: deltas });
+            }
+          }
+        } catch (error) {
+          console.error("Ask structured output failed:", error);
+        }
+
+        if (forceAnswer) {
+          intent = "answer";
+          recallQuery = "";
+          if (seedTranscription) finalTranscription = seedTranscription;
         }
 
         if (!finalReply && intent !== "recall") {
@@ -287,7 +242,8 @@ export async function POST(req: Request) {
 
         send({
           type: "done",
-          transcription: finalTranscription || typedText || "",
+          transcription:
+            finalTranscription || seedTranscription || typedText || "",
           reply: finalReply,
           intent,
           recallQuery,
@@ -295,11 +251,20 @@ export async function POST(req: Request) {
         controller.close();
       } catch (error) {
         console.error("Ask stream failed:", error);
-        send({
-          type: "error",
-          error: "stream_failed",
-          message: error instanceof Error ? error.message : "unknown",
-        });
+        if (APICallError.isInstance(error)) {
+          const status = error.statusCode;
+          if (status === 401 || status === 403) {
+            send({ type: "error", error: "unauthorized", message: "unauthorized" });
+          } else {
+            send({ type: "error", error: "upstream_error", message: "upstream" });
+          }
+        } else {
+          send({
+            type: "error",
+            error: "stream_failed",
+            message: error instanceof Error ? error.message : "unknown",
+          });
+        }
         controller.close();
       }
     },
@@ -319,36 +284,4 @@ function jsonError(
   status: number
 ) {
   return Response.json(body, { status });
-}
-
-function parseModelJson(raw: string): {
-  transcription: string;
-  reply: string;
-  intent: "answer" | "recall";
-  recallQuery: string;
-} | null {
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = (fenced?.[1] ?? raw).trim();
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) return null;
-
-  try {
-    const obj = JSON.parse(candidate.slice(start, end + 1)) as {
-      transcription?: unknown;
-      reply?: unknown;
-      intent?: unknown;
-      recallQuery?: unknown;
-    };
-    const transcription =
-      typeof obj.transcription === "string" ? obj.transcription.trim() : "";
-    const reply = typeof obj.reply === "string" ? obj.reply.trim() : "";
-    const intent = obj.intent === "recall" ? "recall" : "answer";
-    const recallQuery =
-      typeof obj.recallQuery === "string" ? obj.recallQuery.trim() : "";
-    if (!reply && intent !== "recall") return null;
-    return { transcription, reply, intent, recallQuery };
-  } catch {
-    return null;
-  }
 }

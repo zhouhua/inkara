@@ -1,3 +1,6 @@
+import { createLlmModel, resolveLlmCredentials } from "@/lib/llm";
+import { APICallError, generateText } from "ai";
+
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
@@ -16,77 +19,40 @@ export async function POST(req: Request) {
     return jsonError({ error: "invalid_json" }, 400);
   }
 
-  const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
-  if (!apiKey) {
-    return jsonError({ error: "missing_api_key" }, 400);
-  }
-
-  const userBaseUrl =
-    typeof body.baseUrl === "string" ? body.baseUrl.trim() : "";
-  const baseUrl = (
-    userBaseUrl ||
-    process.env.MODEL_BASE_URL ||
-    process.env.DASHSCOPE_BASE_URL ||
-    ""
-  ).replace(/\/$/, "");
-  if (!baseUrl) {
-    return jsonError({ error: "missing_base_url" }, 500);
-  }
-
-  const userModel = typeof body.model === "string" ? body.model.trim() : "";
-  const model =
-    userModel ||
-    process.env.MODEL_NAME ||
-    process.env.DASHSCOPE_MODEL ||
-    "";
-  if (!model) {
-    return jsonError({ error: "missing_model" }, 500);
-  }
-
-  let upstream: Response;
-  try {
-    upstream = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0,
-        max_tokens: 8,
-        stream: false,
-        messages: [{ role: "user", content: "ping" }],
-      }),
-    });
-  } catch {
-    return jsonError({ error: "request_failed" }, 502);
-  }
-
-  if (!upstream.ok) {
-    const code =
-      upstream.status === 401 || upstream.status === 403
-        ? "unauthorized"
-        : "upstream_error";
-    // Drain body for logging only — never return HTML to client
-    const errText = await upstream.text().catch(() => "");
-    console.error("Probe upstream error:", upstream.status, errText.slice(0, 200));
+  const resolved = resolveLlmCredentials({
+    apiKey: body.apiKey,
+    baseUrl: body.baseUrl,
+    model: body.model,
+    requireUserApiKey: true,
+  });
+  if (!resolved.ok) {
+    const status = resolved.error === "missing_api_key" ? 400 : 500;
     return jsonError(
-      {
-        error: code,
-        message: code === "unauthorized" ? "unauthorized" : "upstream",
-      },
-      code === "unauthorized" ? 401 : 502
+      { error: resolved.error, message: resolved.message },
+      status
     );
   }
 
   try {
-    const data = (await upstream.json()) as { choices?: unknown[] };
-    if (!Array.isArray(data.choices)) {
+    const { text } = await generateText({
+      model: createLlmModel(resolved.creds),
+      temperature: 0,
+      maxOutputTokens: 8,
+      prompt: "ping",
+    });
+    if (typeof text !== "string") {
       return jsonError({ error: "upstream_error", message: "upstream" }, 502);
     }
-  } catch {
-    return jsonError({ error: "upstream_error", message: "upstream" }, 502);
+  } catch (error) {
+    console.error("Probe failed:", error);
+    if (APICallError.isInstance(error)) {
+      const status = error.statusCode;
+      if (status === 401 || status === 403) {
+        return jsonError({ error: "unauthorized", message: "unauthorized" }, 401);
+      }
+      return jsonError({ error: "upstream_error", message: "upstream" }, 502);
+    }
+    return jsonError({ error: "request_failed" }, 502);
   }
 
   return Response.json({ ok: true });

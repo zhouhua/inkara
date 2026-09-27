@@ -11,14 +11,21 @@ export function easeInOutCubic(t: number) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
+export function easeInCubic(t: number) {
+  return t * t * t;
+}
+
 export function easeOutQuad(t: number) {
   return 1 - (1 - t) * (1 - t);
 }
 
-/** Ink sinking into the sheet: fade + slight downward drift + soft blur. */
+/** Question ink soaking into the sheet — long enough to mask model wait. */
+export const INK_SINK_DURATION_MS = 2600;
+
+/** Ink sinking into the sheet: linger, soft bleed halo, downward soak. */
 export async function fadeInkIntoPaper(
   canvas: HTMLCanvasElement,
-  opts?: { signal?: { cancelled: boolean } }
+  opts?: { signal?: { cancelled: boolean }; durationMs?: number }
 ): Promise<void> {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -33,9 +40,10 @@ export async function fadeInkIntoPaper(
     return;
   }
 
-  const duration = 1200;
+  const duration = opts?.durationMs ?? INK_SINK_DURATION_MS;
   const start = performance.now();
-  const drift = Math.max(4, canvas.height * 0.012);
+  const drift = Math.max(8, canvas.height * 0.022);
+  const bleedX = Math.max(3, canvas.width * 0.004);
 
   await new Promise<void>((resolve) => {
     const tick = (now: number) => {
@@ -44,15 +52,39 @@ export async function fadeInkIntoPaper(
         return;
       }
       const p = Math.min(1, (now - start) / duration);
-      const e = easeInOutCubic(p);
-      const alpha = 1 - e;
-      const y = drift * e;
-      // Soft “bleed” blur grows as ink sinks
-      const blur = 0.25 + e * 1.2;
+      // Opacity lingers, then dissolves; motion eases smoothly.
+      const fadeE = easeInCubic(p);
+      const moveE = easeInOutCubic(p);
+      const alpha = 1 - fadeE;
+      const y = drift * moveE;
+      const blur = 0.15 + fadeE * 2.35;
+      const spread = bleedX * moveE;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Wide soft halo — ink spreading into paper fibers
       ctx.save();
-      ctx.globalAlpha = alpha;
+      ctx.globalAlpha = alpha * 0.3;
+      ctx.filter = `blur(${blur * 2.5}px)`;
+      ctx.drawImage(
+        copy,
+        -spread,
+        y + drift * 0.08,
+        canvas.width + spread * 2,
+        canvas.height
+      );
+      ctx.restore();
+
+      // Mid veil
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.5;
+      ctx.filter = `blur(${blur * 1.4}px)`;
+      ctx.drawImage(copy, -spread * 0.35, y * 0.92, canvas.width + spread * 0.7, canvas.height);
+      ctx.restore();
+
+      // Core stroke, still readable early in the soak
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.95;
       ctx.filter = `blur(${blur}px)`;
       ctx.drawImage(copy, 0, y);
       ctx.restore();
@@ -66,6 +98,68 @@ export async function fadeInkIntoPaper(
     };
     requestAnimationFrame(tick);
   });
+}
+
+/**
+ * Same sink motion for typed ink: fade the live textarea in place so there is
+ * no canvas handoff jump (CSS vs canvas glyph metrics never match perfectly).
+ * Leaves the element at opacity 0 — caller should clear content, then reset styles.
+ */
+export async function fadeElementIntoPaper(
+  el: HTMLElement,
+  opts?: {
+    signal?: { cancelled: boolean };
+    driftPx?: number;
+    durationMs?: number;
+  }
+): Promise<void> {
+  const drift = opts?.driftPx ?? 14;
+
+  // Claim opacity with an inline value immediately so `.is-active { opacity: 1 }`
+  // cannot snap the text back if classes update mid-animation.
+  el.style.willChange = "opacity, transform, filter";
+  el.style.transformOrigin = "50% 0%";
+  el.style.opacity = "1";
+
+  if (prefersReducedMotion()) {
+    el.style.opacity = "0";
+    el.style.transform = "";
+    el.style.filter = "";
+    el.style.transformOrigin = "";
+    return;
+  }
+
+  const duration = opts?.durationMs ?? INK_SINK_DURATION_MS;
+  const start = performance.now();
+
+  await new Promise<void>((resolve) => {
+    const tick = (now: number) => {
+      if (opts?.signal?.cancelled) {
+        el.style.opacity = "0";
+        resolve();
+        return;
+      }
+      const p = Math.min(1, (now - start) / duration);
+      const fadeE = easeInCubic(p);
+      const moveE = easeInOutCubic(p);
+      const scale = 1 + moveE * 0.014;
+      el.style.opacity = String(1 - fadeE);
+      el.style.transform = `translateY(${drift * moveE}px) scale(${scale})`;
+      el.style.filter = `blur(${0.15 + fadeE * 2.35}px)`;
+      if (p < 1) {
+        requestAnimationFrame(tick);
+      } else {
+        resolve();
+      }
+    };
+    requestAnimationFrame(tick);
+  });
+
+  el.style.opacity = "0";
+  el.style.transform = "";
+  el.style.filter = "";
+  el.style.transformOrigin = "";
+  el.style.willChange = "";
 }
 
 export type ReplyChar = { ch: string; x: number; y: number };
@@ -86,6 +180,11 @@ export function layoutReplyChars(
      * (e.g. room for a quote sitting just above the reply).
      */
     reserveAbove?: number;
+    /**
+     * Lock the first glyph's Y (canvas px). Used while streaming so growing
+     * text expands downward instead of recentering upward.
+     */
+    fixedStartY?: number;
   }
 ): ReplyChar[] {
   const {
@@ -96,6 +195,7 @@ export function layoutReplyChars(
     canvasHeight,
     align = "center",
     reserveAbove = 0,
+    fixedStartY,
   } = opts;
   const paragraphs = text.split(/\n+/);
   const lines: { text: string; width: number }[] = [];
@@ -123,15 +223,20 @@ export function layoutReplyChars(
   const blockHeight = lines.length * lineHeight;
   const totalHeight = reserveAbove + blockHeight;
   const maxBottom = canvasHeight - padY;
-  let blockTop =
-    align === "center"
-      ? Math.max(padY, (canvasHeight - totalHeight) / 2)
-      : padY;
-  if (blockTop + totalHeight > maxBottom) {
-    blockTop = Math.max(padY, maxBottom - totalHeight);
+  let startY: number;
+  if (fixedStartY != null) {
+    startY = fixedStartY;
+  } else {
+    let blockTop =
+      align === "center"
+        ? Math.max(padY, (canvasHeight - totalHeight) / 2)
+        : padY;
+    if (blockTop + totalHeight > maxBottom) {
+      blockTop = Math.max(padY, maxBottom - totalHeight);
+    }
+    startY = blockTop + reserveAbove;
   }
 
-  const startY = blockTop + reserveAbove;
   const chars: ReplyChar[] = [];
   let y = startY;
   for (const row of lines) {
@@ -147,6 +252,17 @@ export function layoutReplyChars(
   return chars;
 }
 
+/** Ease `current` toward `target` (canvas px). */
+export function smoothApproach(
+  current: number,
+  target: number,
+  factor = 0.22
+): number {
+  const delta = target - current;
+  if (Math.abs(delta) < 0.5) return target;
+  return current + delta * factor;
+}
+
 /** CSS pixel Y for placing a quote just above a canvas reply start. */
 export function quoteTopCssPx(
   replyStartY: number,
@@ -154,7 +270,7 @@ export function quoteTopCssPx(
   quoteHeightCss: number,
   gapCss = 10
 ): number {
-  return Math.max(4.5 * 16, replyStartY / dpr - quoteHeightCss - gapCss);
+  return Math.max(4.5 * 16, replyStartY / dpr - quoteHeightCss - gapCss) + 20;
 }
 
 /** Draw a single glyph with ink-settling motion (ghost + settle). */
