@@ -371,70 +371,35 @@ select {
   gap: 0.05rem;
 }
 
-/* Pen / type segmented control — paper-ink, not chrome pills */
-.mode-switch {
-  display: inline-grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: stretch;
+/* Pen / type Rubber Segment — paper-ink track, rubber thumb, icons only */
+.mode-switch.rubber-segment {
+  --rs-pad: 0px;
+  --rs-min: 2rem;
   border: 1px solid var(--hairline);
-  border-radius: 3px;
-  overflow: hidden;
-  background: oklch(0.985 0.003 100 / 0.55);
+  box-shadow: none;
+  font-family: var(--font-ui);
+  vertical-align: middle;
 }
 
-.mode-switch-btn {
-  appearance: none;
-  border: none;
-  background: transparent;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.mode-switch.rubber-segment .rubber-segment__item {
+  gap: 0;
   width: 2rem;
-  height: 1.7rem;
+  min-width: 2rem;
   padding: 0;
-  cursor: pointer;
-  color: oklch(0.34 0.016 255 / 0.45);
-  transition:
-    color 160ms cubic-bezier(0.16, 1, 0.3, 1),
-    background 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.mode-switch-btn + .mode-switch-btn {
-  border-left: 1px solid var(--hairline);
-}
-
-.mode-switch-btn svg {
+.mode-switch.rubber-segment .rubber-segment__item svg {
   display: block;
-  opacity: 0.75;
+  flex-shrink: 0;
 }
 
-.mode-switch-btn:hover:not(:disabled):not(.is-on) {
-  color: var(--ink-soft);
-  background: oklch(0.26 0.016 255 / 0.03);
-}
-
-.mode-switch-btn:hover:not(:disabled):not(.is-on) svg {
-  opacity: 0.9;
-}
-
-.mode-switch-btn.is-on {
-  color: var(--ink);
-  background: oklch(0.26 0.016 255 / 0.08);
-}
-
-.mode-switch-btn.is-on svg {
-  opacity: 1;
-}
-
-.mode-switch-btn:focus-visible {
+.mode-switch.rubber-segment .rubber-segment__item:focus-visible {
   outline: 1px solid var(--accent);
-  outline-offset: -1px;
-  z-index: 1;
+  outline-offset: 1px;
 }
 
-.mode-switch-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
+.mode-switch.rubber-segment .rubber-segment__thumb {
+  box-shadow: 0 0 0 1px oklch(0.26 0.016 255 / 0.08);
 }
 
 .ink-link {
@@ -898,14 +863,20 @@ select {
   height: 1.25rem;
 }
 
-.settings-row select {
-  border: none;
-  border-bottom: 1px solid var(--hairline);
-  background: transparent;
-  border-radius: 0;
-  padding: 0.2rem 0;
-  min-width: 6rem;
-  color: var(--ink);
+.settings-glide.glide-select {
+  flex-shrink: 0;
+}
+
+.settings-glide .glide-select__trigger {
+  border: 1px solid var(--hairline);
+  background: oklch(0.985 0.003 100 / 0.7);
+  min-width: 6.5rem;
+  justify-content: space-between;
+}
+
+.settings-glide .glide-select__trigger:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .settings-row input[type="checkbox"] {

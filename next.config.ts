@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Cursor/browser tooling may hit the app via 127.0.0.1 while the
+  // page Origin is localhost (or the reverse); allow HMR either way.
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
   serverExternalPackages: ["@huggingface/transformers", "onnxruntime-node"],
   // Next 16 defaults to Turbopack; keep an empty turbopack block so a
   // webpack resolveAlias (for non-Turbopack builds) does not fail the build.
@@ -25,4 +28,9 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
-initOpenNextCloudflareForDev();
+
+// Cloudflare Wrangler bootstrap can take a long time / hang in CI and Playwright.
+// Skip it when running automated tests; local `npm run dev` still gets CF bindings.
+if (!process.env.SKIP_OPENNEXT_CLOUDFLARE_DEV) {
+  initOpenNextCloudflareForDev();
+}

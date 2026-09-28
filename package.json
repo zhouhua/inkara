@@ -7,6 +7,10 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:all": "npm run test && npm run test:e2e",
     "preview": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare upload",
@@ -14,9 +18,12 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.55",
+    "@hugeicons/core-free-icons": "^4.3.5",
+    "@hugeicons/react": "^1.1.10",
     "@huggingface/transformers": "^4.3.0",
     "@opennextjs/cloudflare": "^1.20.6",
     "ai": "^7.0.114",
+    "motion": "^13.4.4",
     "next": "16.3.5",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -24,14 +31,18 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.51.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.1.1",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "vitest": "^3.2.4",
     "wrangler": "^4.141.0"
   }
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useId, useState } from "react";
+import Xmark from "reicon-react/icons/Xmark";
+import GlideSelect from "@/components/GlideSelect";
 import { PaperPicker } from "@/components/PaperPicker";
 import { resolvePaperError } from "@/lib/ask-errors";
 import { validateByokFields } from "@/lib/byok";
@@ -23,6 +25,17 @@ type Props = {
 };
 
 type ProbeUi = "idle" | "testing" | "ok" | "fail";
+
+const glideTone = {
+  accentColor: "var(--ink)",
+  surfaceColor: "oklch(0.985 0.003 100)",
+  highlightColor: "oklch(0.26 0.016 255 / 0.08)",
+  textColor: "var(--ink)",
+  size: "sm" as const,
+  radius: 6,
+  align: "right" as const,
+  showTags: false,
+};
 
 export function SettingsPanel({
   open,
@@ -98,65 +111,69 @@ export function SettingsPanel({
       >
         <header className="settings-header">
           <h2 id={titleId}>{t(settings.locale, "settings")}</h2>
-          <button type="button" className="text-action" onClick={handleClose}>
-            {t(settings.locale, "close")}
+          <button
+            type="button"
+            className="ink-link ink-icon-btn"
+            onClick={handleClose}
+            aria-label={t(settings.locale, "close")}
+            title={t(settings.locale, "close")}
+          >
+            <Xmark size={16} aria-hidden />
           </button>
         </header>
 
-        <label className="settings-row">
+        <div className="settings-row">
           <span>{t(settings.locale, "locale")}</span>
-          <select
+          <GlideSelect
+            className="settings-glide"
+            {...glideTone}
+            menuWidth={140}
+            ariaLabel={t(settings.locale, "locale")}
             value={settings.locale}
-            onChange={(e) =>
-              onPatch({ locale: e.target.value as Locale })
-            }
-          >
-            <option value="zh">{t(settings.locale, "localeZh")}</option>
-            <option value="en">{t(settings.locale, "localeEn")}</option>
-          </select>
-        </label>
+            onChange={(value) => onPatch({ locale: value as Locale })}
+            options={[
+              { value: "zh", label: t(settings.locale, "localeZh") },
+              { value: "en", label: t(settings.locale, "localeEn") },
+            ]}
+          />
+        </div>
 
-        <label className="settings-row">
+        <div className="settings-row">
           <span>{t(settings.locale, "submitMode")}</span>
-          <select
+          <GlideSelect
+            className="settings-glide"
+            {...glideTone}
+            menuWidth={160}
+            ariaLabel={t(settings.locale, "submitMode")}
             value={settings.submitMode}
-            onChange={(e) =>
-              onPatch({ submitMode: e.target.value as SubmitMode })
+            onChange={(value) =>
+              onPatch({ submitMode: value as SubmitMode })
             }
-          >
-            <option value="manual">{t(settings.locale, "submitManual")}</option>
-            <option value="auto">{t(settings.locale, "submitAuto")}</option>
-          </select>
-        </label>
+            options={[
+              { value: "manual", label: t(settings.locale, "submitManual") },
+              { value: "auto", label: t(settings.locale, "submitAuto") },
+            ]}
+          />
+        </div>
 
         {settings.submitMode === "auto" ? (
-          <label className="settings-row">
+          <div className="settings-row">
             <span>{t(settings.locale, "idlePace")}</span>
-            <select
+            <GlideSelect
+              className="settings-glide"
+              {...glideTone}
+              menuWidth={140}
+              ariaLabel={t(settings.locale, "idlePace")}
               value={settings.idlePace}
-              onChange={(e) =>
-                onPatch({ idlePace: e.target.value as IdlePace })
-              }
-            >
-              <option value="fast">{t(settings.locale, "idleFast")}</option>
-              <option value="normal">{t(settings.locale, "idleNormal")}</option>
-              <option value="slow">{t(settings.locale, "idleSlow")}</option>
-            </select>
-          </label>
+              onChange={(value) => onPatch({ idlePace: value as IdlePace })}
+              options={[
+                { value: "fast", label: t(settings.locale, "idleFast") },
+                { value: "normal", label: t(settings.locale, "idleNormal") },
+                { value: "slow", label: t(settings.locale, "idleSlow") },
+              ]}
+            />
+          </div>
         ) : null}
-
-        <label className="settings-row">
-          <span>{t(settings.locale, "showReadAs")}</span>
-          <select
-            value={settings.showReadAs ? "on" : "off"}
-            onChange={(e) =>
-              onPatch({ showReadAs: e.target.value === "on" })
-            }
-          >
-            <option value="on">{t(settings.locale, "showReadAsOn")}</option>
-            <option value="off">{t(settings.locale, "showReadAsOff")}</option>
-          </select>
-        </label>
 
         <PaperPicker
           locale={settings.locale}
@@ -236,6 +253,7 @@ export function SettingsPanel({
                       ? "is-fail"
                       : ""
                 }`}
+                role="status"
               >
                 {probeMessage}
               </p>
@@ -247,7 +265,7 @@ export function SettingsPanel({
           {!confirmForget ? (
             <button
               type="button"
-              className="text-action danger"
+              className="text-action is-danger"
               onClick={() => setConfirmForget(true)}
             >
               {t(settings.locale, "clearMemory")}
@@ -255,7 +273,7 @@ export function SettingsPanel({
           ) : (
             <button
               type="button"
-              className="text-action danger confirm"
+              className="text-action is-danger"
               onClick={() => {
                 onClearMemory();
                 setConfirmForget(false);

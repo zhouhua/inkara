@@ -27,8 +27,6 @@ export type AppSettings = {
   submitMode: SubmitMode;
   /** Delay pace when submitMode is auto */
   idlePace: IdlePace;
-  /** Show persistent “read as” transcription */
-  showReadAs: boolean;
   /** User-provided OpenAI-compatible API key (BYOK) */
   apiKey: string;
   /** User-provided base URL; empty uses server default */
@@ -53,7 +51,6 @@ export const defaultSettings: AppSettings = {
   inputMode: "pen",
   submitMode: "manual",
   idlePace: "normal",
-  showReadAs: true,
   apiKey: "",
   baseUrl: "",
   model: "",
@@ -134,7 +131,6 @@ export function normalizeSettings(
       : defaultSettings.inputMode,
     submitMode,
     idlePace,
-    showReadAs: parsed.showReadAs !== false,
     apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : "",
     baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl.trim() : "",
     model: typeof parsed.model === "string" ? parsed.model.trim() : "",

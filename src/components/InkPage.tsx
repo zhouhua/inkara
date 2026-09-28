@@ -24,6 +24,7 @@ import { HelpPanel } from "@/components/HelpPanel";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { DockHints } from "@/components/DockHints";
 import { RecallCiteLayer } from "@/components/RecallCiteLayer";
+import RubberSegment from "@/components/RubberSegment";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { askPageStream } from "@/lib/ask-stream";
 import {
@@ -848,7 +849,6 @@ export function InkPage() {
       opts?: { gateReveal?: Promise<void> }
     ) => {
       const locale = settingsRef.current.locale;
-      const showReadAs = settingsRef.current.showReadAs;
       const animSignal = animSignalRef.current;
 
       clearReplyLayer();
@@ -890,7 +890,7 @@ export function InkPage() {
         ) {
           setPhaseBoth("answering");
         }
-        if (showReadAs && pendingReadAs) {
+        if (pendingReadAs) {
           showReadAsQuote(pendingReadAs);
           pendingReadAs = null;
         }
@@ -943,7 +943,7 @@ export function InkPage() {
               startRevealIfNeeded();
             },
             onMeta: (transcription) => {
-              if (!showReadAs || !transcription) return;
+              if (!transcription) return;
               if (revealGateOpen) {
                 showReadAsQuote(transcription);
               } else {
@@ -977,7 +977,7 @@ export function InkPage() {
         const isRecall =
           result.intent === "recall" || looksLikeRecall(transcription);
 
-        if (showReadAs && transcription) {
+        if (transcription) {
           showReadAsQuote(transcription);
         }
 
@@ -2152,36 +2152,46 @@ export function InkPage() {
               </button>
             </div>
           ) : null}
-          <div
+          <RubberSegment
             className="mode-switch"
-            role="radiogroup"
+            items={[
+              {
+                value: "pen",
+                label: (
+                  <span className="sr-only">
+                    {t(settings.locale, "modePen")}
+                  </span>
+                ),
+                icon: <PenNib size={15} aria-hidden />,
+              },
+              {
+                value: "type",
+                label: (
+                  <span className="sr-only">
+                    {t(settings.locale, "modeType")}
+                  </span>
+                ),
+                icon: <Text size={15} aria-hidden />,
+              },
+            ]}
+            value={inputMode}
+            onChange={(value) => switchMode(value as InputMode)}
+            size="sm"
+            radius={4}
+            inset={2}
+            equalSlots
+            stretch={90}
+            squash={2}
+            speed={1}
+            glide={70}
+            draggable
+            disabled={inputLocked}
+            trackColor="oklch(0.26 0.016 255 / 0.06)"
+            thumbColor="oklch(0.985 0.003 100)"
+            textColor="oklch(0.34 0.016 255 / 0.55)"
+            activeTextColor="var(--ink)"
             aria-label={`${t(settings.locale, "modePen")} / ${t(settings.locale, "modeType")}`}
-          >
-            <button
-              type="button"
-              role="radio"
-              className={`mode-switch-btn ${inputMode === "pen" ? "is-on" : ""}`}
-              onClick={() => switchMode("pen")}
-              aria-checked={inputMode === "pen"}
-              aria-label={t(settings.locale, "modePen")}
-              title={t(settings.locale, "modePen")}
-              disabled={inputLocked}
-            >
-              <PenNib size={15} aria-hidden />
-            </button>
-            <button
-              type="button"
-              role="radio"
-              className={`mode-switch-btn ${inputMode === "type" ? "is-on" : ""}`}
-              onClick={() => switchMode("type")}
-              aria-checked={inputMode === "type"}
-              aria-label={t(settings.locale, "modeType")}
-              title={t(settings.locale, "modeType")}
-              disabled={inputLocked}
-            >
-              <Text size={15} aria-hidden />
-            </button>
-          </div>
+          />
           <button
             type="button"
             className="ink-link ink-icon-btn"

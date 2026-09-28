@@ -32,6 +32,18 @@ npm run dev
 
 手机或桌面浏览器可通过「添加到主屏幕 / 安装应用」以独立窗口打开。
 
+### 测试
+
+```bash
+npm test          # Vitest：src/lib 单测 + API route 集成测
+npm run test:e2e  # Playwright：主路径 E2E（自动启动 next dev，并 stub 模型 API）
+npm run test:all  # 上述两者串行
+```
+
+GitHub Actions 见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)：在 PR / push 上跑 lint、单测与 E2E，**失败不阻塞** Cloudflare 部署（部署流水线仍是独立的 `deploy-cloudflare.yml`）。
+
+E2E 会设置 `SKIP_OPENNEXT_CLOUDFLARE_DEV=1`，跳过 `next.config.ts` 里较慢的 Cloudflare 开发初始化。
+
 ### 环境变量
 
 | 变量 | 说明 | 默认 |
@@ -90,6 +102,16 @@ Worker 已上线；若要推 `main` 自动构建，在 Dashboard 连接仓库即
    - **Production branch**：`main`
 
 本地日常开发仍用 `npm run dev`。
+
+## 测试
+
+```bash
+npm test          # Vitest：src/lib 单测 + API route 集成测
+npm run test:e2e  # Playwright：主路径 E2E（stub 外部 API）
+npm run test:all  # 上述两者
+```
+
+GitHub Actions 有独立 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)（`lint` + unit + e2e）。**CI 失败不会挡住** Cloudflare 部署（[`deploy-cloudflare.yml`](.github/workflows/deploy-cloudflare.yml) 仍独立运行）。
 
 ## 使用
 
