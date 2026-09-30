@@ -20,5 +20,13 @@
       "binding": "WORKER_SELF_REFERENCE",
       "service": "inkara"
     }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "inkara-billing",
+      "database_id": "c8479ec1-2a05-4d31-a137-6a91d12dd693",
+      "migrations_dir": "migrations"
+    }
   ]
 }
