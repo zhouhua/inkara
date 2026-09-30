@@ -130,9 +130,9 @@ git commit -m "feat(billing): add BillingDialog with locked price list"
 
 ## Phase B done when
 
-- [ ] 无 BYOK UI；probe 路由不存在  
-- [ ] 服务端无余额时无法 ask  
-- [ ] 有测试积分时可完整手写问答  
-- [ ] 纸面用尽 → BillingDialog  
+- [x] 无 BYOK UI；probe 路由不存在  
+- [x] 服务端无余额时无法 ask  
+- [x] 有测试积分时可完整手写问答  
+- [x] 纸面用尽 → BillingDialog  
 
 **Next:** Phase C — 聚合支付真正入账。
