@@ -901,28 +901,269 @@ select {
   letter-spacing: 0.06em;
 }
 
-.help-lead {
+.help-intro {
   position: relative;
-  margin: 0;
-  font-size: 0.82rem;
-  line-height: 1.55;
-  color: var(--ink-soft);
-}
-
-.help-list {
-  position: relative;
-  margin: 0;
-  padding: 0 0 0 1.1rem;
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: 0.55rem;
+}
+
+.help-intro-who {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.help-lead {
+  margin: 0;
   font-size: 0.8rem;
   line-height: 1.55;
   color: var(--ink-soft);
 }
 
-.help-list li::marker {
+.help-sheet {
+  width: min(100%, 22.5rem);
+  gap: var(--space-lg);
+}
+
+.help-header {
+  position: sticky;
+  top: calc(-1 * var(--space-xl));
+  z-index: 2;
+  margin: calc(-1 * var(--space-xl)) calc(-1 * var(--space-lg)) 0;
+  padding: var(--space-xl) var(--space-lg) var(--space-sm);
+  background: color-mix(in oklch, var(--paper) 92%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .help-header {
+    backdrop-filter: none;
+    background: var(--paper);
+  }
+}
+
+.help-shortcuts {
+  margin: 0;
+  padding: 0.15rem 0 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--space-md);
+}
+
+.help-shortcut-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.help-shortcut-keys {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0.15rem;
+  min-width: 5.5rem;
+}
+
+.help-shortcut-chord {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.help-shortcut-label {
+  min-width: 0;
   color: var(--ink-faint);
+}
+
+.ink-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4em;
+  padding: 0.12em 0.38em;
+  font: inherit;
+  font-size: 0.72em;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+  color: var(--ink);
+  background: var(--paper-deep);
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  box-shadow: 0 1px 0 oklch(0.26 0.016 255 / 0.07);
+  vertical-align: 0.08em;
+  white-space: nowrap;
+}
+
+.ink-kbd-join {
+  margin: 0 0.05em;
+  font-size: 0.78em;
+  color: var(--ink-faint);
+}
+
+.help-memos {
+  margin: 0;
+  padding: 0.55rem 0.15rem 0.2rem;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+  border-top: 1px solid var(--hairline);
+}
+
+.help-memo {
+  --memo-paper-h: 95;
+  --memo-paper-c: 0.012;
+  --memo-tape-h: 255;
+  --memo-tape-c: 0.02;
+  --memo-rule-h: 255;
+  --memo-rule-c: 0.018;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 1rem 0.95rem 1.05rem;
+  background:
+    linear-gradient(
+      180deg,
+      oklch(0.992 var(--memo-paper-c) var(--memo-paper-h)) 0%,
+      oklch(0.976 calc(var(--memo-paper-c) + 0.004) var(--memo-paper-h)) 100%
+    );
+  border: 1px solid oklch(0.42 calc(var(--memo-paper-c) + 0.006) var(--memo-paper-h) / 0.22);
+  border-radius: 1px;
+  box-shadow:
+    0 1px 0 oklch(0.35 var(--memo-paper-c) var(--memo-paper-h) / 0.06),
+    0 5px 14px oklch(0.32 var(--memo-paper-c) var(--memo-paper-h) / 0.07);
+  transform: rotate(var(--memo-tilt, 0deg));
+  transform-origin: 50% 0%;
+}
+
+/* Whisper of hue per slip — chroma stays tiny */
+.help-memo:nth-child(6n + 1) {
+  --memo-tilt: -0.55deg;
+  --memo-paper-h: 250;
+  --memo-paper-c: 0.014;
+  --memo-tape-h: 245;
+  --memo-tape-c: 0.028;
+  --memo-rule-h: 250;
+  --memo-rule-c: 0.02;
+}
+.help-memo:nth-child(6n + 2) {
+  --memo-tilt: 0.5deg;
+  --memo-paper-h: 85;
+  --memo-paper-c: 0.016;
+  --memo-tape-h: 70;
+  --memo-tape-c: 0.026;
+  --memo-rule-h: 80;
+  --memo-rule-c: 0.018;
+}
+.help-memo:nth-child(6n + 3) {
+  --memo-tilt: -0.25deg;
+  --memo-paper-h: 155;
+  --memo-paper-c: 0.013;
+  --memo-tape-h: 150;
+  --memo-tape-c: 0.024;
+  --memo-rule-h: 155;
+  --memo-rule-c: 0.016;
+}
+.help-memo:nth-child(6n + 4) {
+  --memo-tilt: 0.65deg;
+  --memo-paper-h: 35;
+  --memo-paper-c: 0.015;
+  --memo-tape-h: 28;
+  --memo-tape-c: 0.025;
+  --memo-rule-h: 30;
+  --memo-rule-c: 0.018;
+}
+.help-memo:nth-child(6n + 5) {
+  --memo-tilt: -0.4deg;
+  --memo-paper-h: 300;
+  --memo-paper-c: 0.012;
+  --memo-tape-h: 295;
+  --memo-tape-c: 0.022;
+  --memo-rule-h: 300;
+  --memo-rule-c: 0.015;
+}
+.help-memo:nth-child(6n + 6) {
+  --memo-tilt: 0.3deg;
+  --memo-paper-h: 200;
+  --memo-paper-c: 0.014;
+  --memo-tape-h: 195;
+  --memo-tape-c: 0.026;
+  --memo-rule-h: 200;
+  --memo-rule-c: 0.017;
+}
+
+/* Washi-like tape — same family as the slip, still nearly grey */
+.help-memo::before {
+  content: "";
+  position: absolute;
+  top: -0.38rem;
+  left: 50%;
+  width: 2.55rem;
+  height: 0.58rem;
+  transform: translateX(-50%) rotate(var(--memo-tape-tilt, -1.2deg));
+  background: oklch(0.86 var(--memo-tape-c) var(--memo-tape-h) / 0.48);
+  border: 1px solid oklch(0.4 calc(var(--memo-tape-c) * 0.7) var(--memo-tape-h) / 0.18);
+  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.2);
+  pointer-events: none;
+}
+
+.help-memo:nth-child(odd)::before {
+  --memo-tape-tilt: 1.4deg;
+  left: 42%;
+}
+
+.help-memo:nth-child(even)::before {
+  --memo-tape-tilt: -1.1deg;
+  left: 58%;
+}
+
+.help-memo-index {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.75rem;
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.12em;
+  color: oklch(0.58 var(--memo-rule-c) var(--memo-rule-h));
+}
+
+.help-memo-body {
+  margin: 0;
+  padding-right: 1.5rem;
+  font-size: 0.78rem;
+  line-height: 1.7;
+  color: var(--ink-soft);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(1.7em - 1px),
+    oklch(0.45 var(--memo-rule-c) var(--memo-rule-h) / 0.14) calc(1.7em - 1px),
+    oklch(0.45 var(--memo-rule-c) var(--memo-rule-h) / 0.14) 1.7em
+  );
+  background-position: 0 0.12em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .help-memo,
+  .help-memo::before {
+    transform: none;
+  }
+
+  .help-memo:nth-child(odd)::before,
+  .help-memo:nth-child(even)::before {
+    left: 50%;
+  }
 }
 
 .settings-section-hint {
@@ -930,6 +1171,126 @@ select {
   font-size: 0.72rem;
   line-height: 1.45;
   color: var(--ink-faint);
+}
+
+.settings-byok-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.settings-byok-status {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
+}
+
+.settings-byok-status.is-set {
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ——— BYOK dialog (above settings sheet) ——— */
+
+.byok-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: grid;
+  place-items: center;
+  padding: var(--space-lg);
+  animation: fade-in 180ms ease;
+}
+
+.byok-backdrop {
+  position: absolute;
+  inset: 0;
+  background: oklch(0.24 0.02 255 / 0.1);
+}
+
+.byok-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 20.5rem);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-xl) var(--space-lg) var(--space-lg);
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  animation: sheet-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.byok-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.byok-header h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--ink);
+}
+
+.byok-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.byok-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.byok-field input {
+  width: 100%;
+  border: none;
+  border-radius: 4px;
+  background: oklch(0.26 0.016 255 / 0.04);
+  padding: 0.5rem 0.65rem;
+  font-size: 0.82rem;
+  color: var(--ink);
+  font-family: inherit;
+}
+
+.byok-field input::placeholder {
+  color: var(--ink-faint);
+}
+
+.byok-field input:focus {
+  outline: none;
+  background: oklch(0.26 0.016 255 / 0.07);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+
+.byok-actions {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-top: var(--space-xs);
+}
+
+.byok-actions-end {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+}
+
+.text-action.is-primary {
+  color: var(--ink);
+  border-bottom-color: var(--hairline);
 }
 
 .settings-row-stack input[type="password"],
@@ -1756,6 +2117,8 @@ button.history-cal-cell:disabled {
   .paper-page.phase-thinking::after,
   .settings-backdrop,
   .settings-sheet,
+  .byok-layer,
+  .byok-dialog,
   .history-panel {
     animation: none;
     transition: opacity 100ms linear;

@@ -17,3 +17,23 @@ export function validateByokFields(input: {
   }
   return errors;
 }
+
+/** Draft save: all empty clears BYOK; any field set requires a valid key (+ optional URL). */
+export function validateByokDraft(input: {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}): { apiKey?: string; baseUrl?: string } {
+  const apiKey = input.apiKey.trim();
+  const baseUrl = input.baseUrl.trim();
+  const model = input.model.trim();
+  if (!apiKey && !baseUrl && !model) return {};
+  return validateByokFields({ apiKey, baseUrl });
+}
+
+export function maskApiKey(apiKey: string): string {
+  const key = apiKey.trim();
+  if (!key) return "";
+  if (key.length <= 8) return "••••";
+  return `${key.slice(0, 4)}…${key.slice(-4)}`;
+}

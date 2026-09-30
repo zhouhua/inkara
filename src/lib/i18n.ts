@@ -101,7 +101,13 @@ const messages = {
     apiModel: "模型",
     apiModelPlaceholder: "留空则用默认",
     apiSection: "自备模型",
-    apiSectionHint: "正式环境无 Key 时，每天可免费问答两次",
+    apiSectionHint: "未配置 Key 时，每天可免费问答两次",
+    apiConfigure: "配置",
+    apiConfigured: "已配置 · {key}",
+    apiNotConfigured: "未配置",
+    apiSave: "保存",
+    apiCancel: "取消",
+    apiClear: "清空",
     apiTest: "测试连接",
     byokKeyRequired: "请填写 API Key",
     byokUrlInvalid: "Endpoint 需为 http(s) 地址",
@@ -111,12 +117,31 @@ const messages = {
     embedLoading: "记忆检索准备中…",
     embedLoadingPct: "记忆检索准备中 · {pct}%",
     help: "帮助",
-    helpLead: "纸面即日记。写下一两句，停笔，纸会轻轻回答。",
-    helpWrite: "用笔迹或文字写下；右上角可切换模式。",
-    helpSubmit: "默认：双击空白或按 Enter 提交；文字模式用 Shift+Enter 换行。设定里可改为自动延迟提交。",
-    helpReply: "墨迹渗入后，回答会以手写体在纸面中部浮现。",
-    helpRecall: "写「找××那页」可唤起旧页；纸答里的标记可点开批注。也可打开「旧页」回顾。",
-    helpTools: "右上角：笔迹 / 文字、旧页、设定。回答后可用清页、导出、新篇章。",
+    helpIntro:
+      "墨语 · inkara 是一张会回答的纸。你写下一两句，它以手写体轻轻回应。",
+    helpLead: "写完后，双击空白或按 [[Enter]]。",
+    helpKeyLegend: "键盘操作",
+    helpKeyEnter: "提交；也可双击纸面空白",
+    helpKeyShiftEnter: "文字模式换行（单独 Enter 会提交）",
+    helpMemosLabel: "用法便笺",
+    helpMemoPen:
+      "保持笔迹模式。用鼠标、手指或手写笔写下几句——例如「今天总觉得闷」。按压越重线越粗；写错了用右上角撤销 / 重做。写完后在笔迹外的空白处双击，或按 [[Enter]]。提交后顶部可能留下淡墨辨认，回答在纸面中部逐字浮现。",
+    helpMemoType:
+      "点右上角文字图标切到文字模式，纸上出现输入区。同一段里换行用 [[Shift]]+[[Enter]]；写完按 [[Enter]]，或在输入区外双击空白。之后与手写相同：辨认引用、回答浮现。",
+    helpMemoAuto:
+      "打开设定，把提交方式改为自动延迟，延迟时长可选快（约 3.4 秒）/ 普通（约 4.5 秒）/ 慢（约 6 秒）。停笔后底部出现环形进度，转满即交卷；仍可随时双击空白或按 [[Enter]] 提前交卷。",
+    helpMemoRecall:
+      "写「找失眠那页」或「找上周下雨那天」，再双击空白或按 [[Enter]]。若找到相关旧页，纸会结合记忆作答，回答里可点的标记能打开旧页批注；若没有找到，纸上会说明，并提示也可打开旧页查找。",
+    helpMemoHistory:
+      "点右上角书本打开旧页。用搜索过滤写下的字或纸答，或用日历只看某一天。找到后点记忆重现，该页以淡墨回到纸面；轻触纸面回到今天。清空回忆用面板里的遗忘（需确认）。",
+    helpMemoContinue:
+      "回答浮现后，底部出现「继续写」。点它回到可写状态，再写下下一句并双击空白或按 [[Enter]] 提交，同一话题接着往下。",
+    helpMemoClear:
+      "纸上已有笔迹或文字、但还没交卷时，底部出现「清页」。点它只擦掉未提交的输入；已浮现的回答与先前对话仍留在纸上。",
+    helpMemoChapter:
+      "这轮对话告一段落时，底部出现「新篇章」。点它清空当前页上的对话痕迹，回到空白纸，可以换话题重新写。",
+    helpMemoExport:
+      "回答浮现后，底部出现导出图标。点它把当前整页保存为 PNG，便于收藏或分享；不会打断纸上的书写。",
   },
   en: {
     brand: "墨语",
@@ -215,7 +240,13 @@ const messages = {
     apiModel: "Model",
     apiModelPlaceholder: "Leave blank for default",
     apiSection: "Your model",
-    apiSectionHint: "Without a key, production allows two free asks per day",
+    apiSectionHint: "Without a key, two free asks per day",
+    apiConfigure: "Configure",
+    apiConfigured: "Set · {key}",
+    apiNotConfigured: "Not set",
+    apiSave: "Save",
+    apiCancel: "Cancel",
+    apiClear: "Clear",
     apiTest: "Test connection",
     byokKeyRequired: "Enter an API Key",
     byokUrlInvalid: "Endpoint must be an http(s) URL",
@@ -225,12 +256,31 @@ const messages = {
     embedLoading: "Preparing recall…",
     embedLoadingPct: "Preparing recall · {pct}%",
     help: "Help",
-    helpLead: "The page is a diary. Write a line or two, pause, and it answers quietly.",
-    helpWrite: "Write with pen or type; switch modes at the top right.",
-    helpSubmit: "Default: double-tap empty space or press Enter. In type mode, Shift+Enter adds a line. Settings can switch to auto-delay submit.",
-    helpReply: "After the ink soaks in, the reply rises in handwriting mid-page.",
-    helpRecall: "Write “find the page about…” to recall; tap marks in the reply for notes. Or open Pages to browse.",
-    helpTools: "Top right: pen / type, Pages, Menu. After a reply: clear, export, or new chapter.",
+    helpIntro:
+      "墨语 · inkara is a page that answers back. Write a line or two, and it replies quietly in handwriting.",
+    helpLead: "When you are done, double-tap empty space or press [[Enter]].",
+    helpKeyLegend: "Keyboard",
+    helpKeyEnter: "Submit; or double-tap empty space",
+    helpKeyShiftEnter: "New line in type mode (Enter alone submits)",
+    helpMemosLabel: "Memo notes",
+    helpMemoPen:
+      "Stay on Pen. With a mouse, finger, or stylus, write a few lines—e.g. “I feel tight today.” Harder press makes a thicker stroke; use Undo / Redo at the top right if you slip. When finished, double-tap empty space (not on the ink) or press [[Enter]]. After you submit, a faint reading quote may stay near the top; the reply rises character by character mid-page.",
+    helpMemoType:
+      "Tap the text icon at the top right for Type; an input area appears. Use [[Shift]]+[[Enter]] for a new line inside the passage; press [[Enter]] when done, or double-tap empty space outside the input. Then it matches handwriting: reading quote, reply rising.",
+    helpMemoAuto:
+      "Open Menu, set Submit to Auto delay, and pick Fast (~3.4s) / Normal (~4.5s) / Slow (~6s). After you pause, a ring fills at the bottom and sends; you can still double-tap empty space or press [[Enter]] early.",
+    helpMemoRecall:
+      "Write “find the sleepless page” or “the rainy day last week,” then double-tap empty or press [[Enter]]. If related pages are found, the reply weaves them in and tappable marks open a Page note; if nothing matches, the page says so and points you to Pages.",
+    helpMemoHistory:
+      "Open the book icon for Pages. Search what you wrote or the reply, or tap a calendar day. Relive brings that page back in faint ink; touch the paper to return to today. Forget in the panel clears memories (with confirmation).",
+    helpMemoContinue:
+      "When the reply has risen, Continue appears at the bottom. Tap it, write the next line, then double-tap empty or press [[Enter]]—same thread, kept going.",
+    helpMemoClear:
+      "If there are unsent strokes or typed text, Clear appears at the bottom. Tap it to erase only that unsent input; risen replies and earlier dialogue stay.",
+    helpMemoChapter:
+      "When this thread feels finished, New chapter appears at the bottom. Tap it to clear dialogue on the page and return to blank paper for a fresh topic.",
+    helpMemoExport:
+      "After a reply has risen, Export appears at the bottom. Tap it to save the full page as a PNG—handy to keep or share. Writing on the page is unchanged.",
   },
 } as const;
 
