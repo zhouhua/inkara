@@ -1,4 +1,8 @@
-export type PaperErrorAction = "open_settings" | "retry" | "dismiss";
+export type PaperErrorAction =
+  | "open_settings"
+  | "open_billing"
+  | "retry"
+  | "dismiss";
 
 export function resolvePaperError(input: {
   error?: string;
@@ -7,11 +11,15 @@ export function resolvePaperError(input: {
   if (input.offline) return { messageKey: "offline", action: "retry" };
   switch (input.error) {
     case "quota_exceeded":
-      return { messageKey: "quotaExceeded", action: "open_settings" };
+    case "quota_exhausted":
+      return { messageKey: "quotaExceeded", action: "open_billing" };
+    case "login_required":
+      return { messageKey: "loginRequired", action: "open_billing" };
     case "missing_api_key":
-      return { messageKey: "missingKey", action: "open_settings" };
+      // Platform misconfig — not a user BYOK path anymore
+      return { messageKey: "upstreamBusy", action: "retry" };
     case "unauthorized":
-      return { messageKey: "unauthorizedKey", action: "open_settings" };
+      return { messageKey: "upstreamBusy", action: "retry" };
     case "request_failed":
     case "network":
       return { messageKey: "networkError", action: "retry" };

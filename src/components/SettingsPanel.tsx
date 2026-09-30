@@ -1,25 +1,19 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import Xmark from "reicon-react/icons/Xmark";
-import { ByokDialog, byokSummaryLabel } from "@/components/ByokDialog";
 import GlideSelect from "@/components/GlideSelect";
 import { PaperPicker } from "@/components/PaperPicker";
 import { t, type Locale } from "@/lib/i18n";
 import type { PaperStyleId } from "@/lib/paper";
-import {
-  hasUserApiKey,
-  type AppSettings,
-  type IdlePace,
-  type SubmitMode,
-} from "@/lib/settings";
+import type { AppSettings, IdlePace, SubmitMode } from "@/lib/settings";
 
 type Props = {
   open: boolean;
   settings: AppSettings;
   onClose: () => void;
-  /** Field-level patch — parent merges against persisted cache, not stale props. */
   onPatch: (patch: Partial<AppSettings>) => void;
+  onOpenBilling: () => void;
 };
 
 const glideTone = {
@@ -33,25 +27,44 @@ const glideTone = {
   showTags: false,
 };
 
+type BillingSummary = {
+  anonymous?: boolean;
+  email?: string | null;
+  credits?: { daily: number; purchased: number };
+  subscription?: { active: boolean };
+};
+
 export function SettingsPanel({
   open,
   settings,
   onClose,
   onPatch,
+  onOpenBilling,
 }: Props) {
   const titleId = useId();
-  const [byokOpen, setByokOpen] = useState(false);
+  const [summary, setSummary] = useState<BillingSummary | null>(null);
 
-  const handleClose = () => {
-    setByokOpen(false);
-    onClose();
-  };
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void fetch("/api/billing/me")
+      .then((r) => r.json())
+      .then((data: BillingSummary) => {
+        if (!cancelled) setSummary(data);
+      })
+      .catch(() => {
+        if (!cancelled) setSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   if (!open) return null;
 
   return (
     <>
-      <div className="settings-backdrop" onClick={handleClose} role="presentation" />
+      <div className="settings-backdrop" onClick={onClose} role="presentation" />
       <aside
         className="settings-sheet"
         role="dialog"
@@ -63,7 +76,7 @@ export function SettingsPanel({
           <button
             type="button"
             className="ink-link ink-icon-btn"
-            onClick={handleClose}
+            onClick={onClose}
             aria-label={t(settings.locale, "close")}
             title={t(settings.locale, "close")}
           >
@@ -132,37 +145,30 @@ export function SettingsPanel({
 
         <div className="settings-section">
           <p className="settings-section-title">
-            {t(settings.locale, "apiSection")}
+            {t(settings.locale, "billingTitle")}
           </p>
           <p className="settings-section-hint">
-            {t(settings.locale, "apiSectionHint")}
+            {summary?.anonymous === false
+              ? t(settings.locale, "billingCreditsLine")
+                  .replace("{daily}", String(summary.credits?.daily ?? 0))
+                  .replace(
+                    "{purchased}",
+                    String(summary.credits?.purchased ?? 0),
+                  )
+              : t(settings.locale, "billingNeedLogin")}
           </p>
-          <div className="settings-byok-summary">
-            <p
-              className={`settings-byok-status ${
-                hasUserApiKey(settings) ? "is-set" : ""
-              }`}
-            >
-              {byokSummaryLabel(settings, settings.locale)}
-            </p>
-            <button
-              type="button"
-              className="text-action"
-              onClick={() => setByokOpen(true)}
-            >
-              {t(settings.locale, "apiConfigure")}
-            </button>
-          </div>
+          <button
+            type="button"
+            className="text-action"
+            onClick={() => {
+              onClose();
+              onOpenBilling();
+            }}
+          >
+            {t(settings.locale, "billingOpen")}
+          </button>
         </div>
       </aside>
-
-      <ByokDialog
-        open={byokOpen}
-        locale={settings.locale}
-        settings={settings}
-        onClose={() => setByokOpen(false)}
-        onSave={(draft) => onPatch(draft)}
-      />
     </>
   );
 }

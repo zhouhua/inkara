@@ -7,16 +7,17 @@ type Panel = "settings" | "help" | "history" | null;
 type UiStore = {
   dbReady: boolean;
   panel: Panel;
+  billingOpen: boolean;
   setDbReady: (ready: boolean) => void;
   openPanel: (panel: Exclude<Panel, null>) => void;
   closePanel: () => void;
-  /** Convenience booleans for existing call sites. */
   settingsOpen: boolean;
   helpOpen: boolean;
   historyOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
   setHelpOpen: (open: boolean) => void;
   setHistoryOpen: (open: boolean) => void;
+  setBillingOpen: (open: boolean) => void;
 };
 
 function panelFlags(panel: Panel) {
@@ -31,6 +32,7 @@ function panelFlags(panel: Panel) {
 export const useUiStore = create<UiStore>((set) => ({
   dbReady: false,
   panel: null,
+  billingOpen: false,
   settingsOpen: false,
   helpOpen: false,
   historyOpen: false,
@@ -45,4 +47,5 @@ export const useUiStore = create<UiStore>((set) => ({
   setHelpOpen: (open) => set(open ? panelFlags("help") : panelFlags(null)),
   setHistoryOpen: (open) =>
     set(open ? panelFlags("history") : panelFlags(null)),
+  setBillingOpen: (open) => set({ billingOpen: open }),
 }));

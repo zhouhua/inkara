@@ -9,17 +9,24 @@ describe("resolvePaperError", () => {
     });
   });
 
-  it("maps quota and missing key to open_settings", () => {
+  it("maps quota exhaustion to open_billing", () => {
     expect(resolvePaperError({ error: "quota_exceeded" }).action).toBe(
-      "open_settings"
+      "open_billing",
     );
-    expect(resolvePaperError({ error: "missing_api_key" })).toEqual({
-      messageKey: "missingKey",
-      action: "open_settings",
+    expect(resolvePaperError({ error: "quota_exhausted" })).toEqual({
+      messageKey: "quotaExceeded",
+      action: "open_billing",
     });
-    expect(resolvePaperError({ error: "unauthorized" }).messageKey).toBe(
-      "unauthorizedKey"
+    expect(resolvePaperError({ error: "login_required" }).action).toBe(
+      "open_billing",
     );
+  });
+
+  it("maps missing platform key to retry", () => {
+    expect(resolvePaperError({ error: "missing_api_key" }).action).toBe(
+      "retry",
+    );
+    expect(resolvePaperError({ error: "unauthorized" }).action).toBe("retry");
   });
 
   it("maps network-ish errors to retry", () => {

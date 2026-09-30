@@ -20,6 +20,7 @@ import Setting from "reicon-react/icons/Setting";
 import Text from "reicon-react/icons/Text";
 import Undo from "reicon-react/icons/Undo";
 import { BrandMark } from "@/components/BrandMark";
+import { BillingDialog } from "@/components/BillingDialog";
 import { HelpPanel } from "@/components/HelpPanel";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { DockHints } from "@/components/DockHints";
@@ -58,12 +59,7 @@ import {
   type MemoryPage,
 } from "@/lib/memory";
 import { getPaperStyle } from "@/lib/paper";
-import {
-  canUseFreeAsk,
-  hydrateQuota,
-  recordFreeAsk,
-  usesFreeQuota,
-} from "@/lib/quota";
+import { ensureAnonSubject } from "@/lib/billing-client";
 import {
   rankRecallCandidates,
   toRankCandidates,
@@ -81,7 +77,6 @@ import {
 } from "@/lib/recall-cite";
 import {
   defaultSettings,
-  hasUserApiKey,
   idleMsFor,
   type AppSettings,
   type InputMode,
@@ -173,7 +168,9 @@ export function InkPage() {
   const settingsOpen = useUiStore((s) => s.settingsOpen);
   const helpOpen = useUiStore((s) => s.helpOpen);
   const historyOpen = useUiStore((s) => s.historyOpen);
+  const billingOpen = useUiStore((s) => s.billingOpen);
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
+  const setBillingOpen = useUiStore((s) => s.setBillingOpen);
   const setHelpOpen = useUiStore((s) => s.setHelpOpen);
   const setHistoryOpen = useUiStore((s) => s.setHistoryOpen);
   const dbReadyRef = useRef(false);
@@ -906,29 +903,15 @@ export function InkPage() {
           });
         }
 
-        const currentSettings = settingsRef.current;
-        const freePath = usesFreeQuota(currentSettings);
-        if (freePath && !canUseFreeAsk()) {
-          throw Object.assign(new Error(t(locale, "quotaExceeded")), {
-            error: "quota_exceeded",
-          });
-        }
+        await ensureAnonSubject();
 
         const memory = recentContext();
-        const byok = hasUserApiKey(currentSettings);
         const result = await askPageStream(
           {
             ...(image ? { image } : {}),
             locale,
             memory,
             typedText: typedSnapshot || undefined,
-            ...(byok
-              ? {
-                  apiKey: currentSettings.apiKey.trim(),
-                  baseUrl: currentSettings.baseUrl.trim() || undefined,
-                  model: currentSettings.model.trim() || undefined,
-                }
-              : {}),
           },
           {
             onDelta: (text) => {
@@ -958,10 +941,6 @@ export function InkPage() {
           if (reveal.promise) await reveal.promise;
           resetToReady();
           return;
-        }
-
-        if (freePath) {
-          void recordFreeAsk();
         }
 
         const transcription =
@@ -1010,13 +989,6 @@ export function InkPage() {
                 query,
                 locale,
                 candidates: toRankCandidates(scored.map((s) => s.page)),
-                ...(byok
-                  ? {
-                      apiKey: currentSettings.apiKey.trim(),
-                      baseUrl: currentSettings.baseUrl.trim() || undefined,
-                      model: currentSettings.model.trim() || undefined,
-                    }
-                  : {}),
               });
               if (animSignal.cancelled) {
                 resetToReady();
@@ -1034,13 +1006,6 @@ export function InkPage() {
           }
 
           const citePages = pickRecallCitePages(ordered);
-          const byokFields = byok
-            ? {
-                apiKey: currentSettings.apiKey.trim(),
-                baseUrl: currentSettings.baseUrl.trim() || undefined,
-                model: currentSettings.model.trim() || undefined,
-              }
-            : {};
 
           buffered = "";
           liveReplyRef.current = "";
@@ -1058,7 +1023,6 @@ export function InkPage() {
                 typedText: transcription,
                 fixedTranscription: transcription,
                 recallMode: "miss",
-                ...byokFields,
               },
               {
                 onDelta: (text) => {
@@ -1122,7 +1086,6 @@ export function InkPage() {
               fixedTranscription: transcription,
               recallMode: "cite",
               recallPages: toRecallCitePayloads(citePages),
-              ...byokFields,
             },
             {
               onDelta: (text) => {
@@ -1511,6 +1474,12 @@ export function InkPage() {
   const onPaperErrorAction = useCallback(() => {
     const action = paperErrorAction;
     setPaperErrorAction(null);
+    if (action === "open_billing") {
+      clearReplyLayer();
+      setPhase("ready");
+      setBillingOpen(true);
+      return;
+    }
     if (action === "open_settings") {
       clearReplyLayer();
       setPhase("ready");
@@ -1526,7 +1495,7 @@ export function InkPage() {
     }
     clearReplyLayer();
     setPhase("ready");
-  }, [clearReplyLayer, paperErrorAction, retryLastCommit]);
+  }, [clearReplyLayer, paperErrorAction, retryLastCommit, setBillingOpen]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (handlePaperPointer()) return;
@@ -2075,7 +2044,9 @@ export function InkPage() {
         >
           {t(
             settings.locale,
-            paperErrorAction === "open_settings"
+            paperErrorAction === "open_billing"
+              ? "actionOpenBilling"
+              : paperErrorAction === "open_settings"
               ? "actionOpenSettings"
               : paperErrorAction === "retry"
                 ? "actionRetry"
@@ -2299,6 +2270,13 @@ export function InkPage() {
           if (!dbReadyRef.current) return;
           applySettingsPatch(patch);
         }}
+        onOpenBilling={() => setBillingOpen(true)}
+      />
+
+      <BillingDialog
+        open={billingOpen}
+        locale={settings.locale}
+        onClose={() => setBillingOpen(false)}
       />
 
       <HelpPanel

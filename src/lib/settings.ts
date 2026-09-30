@@ -27,12 +27,6 @@ export type AppSettings = {
   submitMode: SubmitMode;
   /** Delay pace when submitMode is auto */
   idlePace: IdlePace;
-  /** User-provided OpenAI-compatible API key (BYOK) */
-  apiKey: string;
-  /** User-provided base URL; empty uses server default */
-  baseUrl: string;
-  /** User-provided model id; empty uses server default */
-  model: string;
   /** User has entered commit (thinking) at least once — dismisses first-run dock copy */
   hasCommittedOnce: boolean;
 };
@@ -51,9 +45,6 @@ export const defaultSettings: AppSettings = {
   inputMode: "pen",
   submitMode: "manual",
   idlePace: "normal",
-  apiKey: "",
-  baseUrl: "",
-  model: "",
   hasCommittedOnce: false,
 };
 
@@ -131,9 +122,7 @@ export function normalizeSettings(
       : defaultSettings.inputMode,
     submitMode,
     idlePace,
-    apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : "",
-    baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl.trim() : "",
-    model: typeof parsed.model === "string" ? parsed.model.trim() : "",
+    // Legacy BYOK fields in IDB are ignored (platform billing).
     hasCommittedOnce: parsed.hasCommittedOnce === true,
   };
 }
@@ -179,7 +168,7 @@ export function saveSettings(settings: AppSettings) {
 /**
  * Patch settings against the module cache (source of truth), never against a
  * possibly-stale React props snapshot. Prevents rapid field edits from
- * resurrecting an older submitMode / apiKey / etc.
+ * resurrecting an older submitMode / locale / etc.
  */
 export function patchSettings(patch: Partial<AppSettings>): AppSettings {
   return saveSettings({ ...loadSettings(), ...patch });
@@ -208,15 +197,8 @@ export function mergePreHydrateSettings(
   return {
     ...fromDb,
     ...pending,
-    apiKey: pending.apiKey.trim() ? pending.apiKey : fromDb.apiKey,
-    baseUrl: pending.baseUrl.trim() ? pending.baseUrl : fromDb.baseUrl,
-    model: pending.model.trim() ? pending.model : fromDb.model,
     hasCommittedOnce: fromDb.hasCommittedOnce || pending.hasCommittedOnce,
   };
-}
-
-export function hasUserApiKey(settings: AppSettings = settingsCache): boolean {
-  return settings.apiKey.trim().length > 0;
 }
 
 /** Ensure DB is hydrated and settings cache is warm. */
