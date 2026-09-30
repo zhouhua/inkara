@@ -6,6 +6,13 @@ import {
 } from "./schema";
 import type { BillingStore } from "./ledger";
 
+export type MemoryBillingStore = BillingStore & {
+  setActiveSubscription: NonNullable<BillingStore["setActiveSubscription"]>;
+  addPurchased: NonNullable<BillingStore["addPurchased"]>;
+  setUsage: NonNullable<BillingStore["setUsage"]>;
+  markGoodwillGranted: NonNullable<BillingStore["markGoodwillGranted"]>;
+};
+
 function id(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -18,7 +25,8 @@ function isUsable(lot: CreditLot, at: Date): boolean {
 
 export function createMemoryBillingStore(opts?: {
   now?: Date;
-}): BillingStore {
+}): MemoryBillingStore {
+  void opts;
   const lots: CreditLot[] = [];
   const usage = new Map<string, number>();
   const goodwill = new Set<string>();
@@ -27,7 +35,7 @@ export function createMemoryBillingStore(opts?: {
 
   const usageKey = (userId: string, period: string) => `${userId}:${period}`;
 
-  const store: BillingStore = {
+  const store: MemoryBillingStore = {
     async ensureDailyGrant(subjectId, grantDate, expiresAt) {
       const exists = lots.some(
         (l) =>

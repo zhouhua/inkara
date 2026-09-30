@@ -51,10 +51,22 @@ E2E 会设置 `SKIP_OPENNEXT_CLOUDFLARE_DEV=1`，跳过 `next.config.ts` 里较�
 | `MODEL_API_KEY` | 服务端默认 API Key（用户未自备时使用） | — |
 | `MODEL_BASE_URL` | OpenAI 兼容接口 Base URL | — |
 | `MODEL_NAME` | 视觉模型名称 | — |
+| `AUTH_SECRET` | Auth.js 会话加密密钥（必填才能登录） | — |
+| `AUTH_RESEND_KEY` | Resend API Key；**未设时魔法链接只打印到服务端日志** | — |
+| `AUTH_EMAIL_FROM` | 发信地址 | `onboarding@resend.dev` |
+| `AUTH_TRUST_HOST` | 反代后信任 Host（Workers 建议 `true`） | Auth.js 内已 `trustHost: true` |
+
+**计费 / 登录（Phase A）：** D1 绑定名 `DB`（库 `inkara-billing`，见 `wrangler.jsonc`）。本地迁移：
+
+```bash
+npx wrangler d1 migrations apply inkara-billing --local
+```
+
+邮箱魔法链接：打开 `/api/auth/signin`，提交邮箱后看终端日志中的 `[inkara:auth] Magic link`；生产配置 `AUTH_RESEND_KEY` 后才会真发信。登录用户写入 D1 `users` 表。
 
 正式构建（`next start` / 生产部署）下，用户若未在设定中填写自己的 API Key，每天仅可免费问答 2 次；超出后需自行配置 Key。开发模式（`next dev`）不限次。
 
-用户数据（设定、自备凭据、历史、配额）保存在浏览器 IndexedDB，不再使用 localStorage。
+用户数据（设定、自备凭据、历史、配额）保存在浏览器 IndexedDB，不再使用 localStorage。计费账本在服务端 D1（进行中）。
 
 请使用支持识图的视觉模型。
 

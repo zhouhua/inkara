@@ -1,17 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ensureDailyGrant, consumeOne, getBalance } from "./ledger";
 import {
-  ensureDailyGrant,
-  consumeOne,
-  getBalance,
-  type BillingStore,
-} from "./ledger";
-import { createMemoryBillingStore } from "./memory-db";
+  createMemoryBillingStore,
+  type MemoryBillingStore,
+} from "./memory-db";
 
 const SUBJECT = "user_test_1";
 const PERIOD = "2026-09";
 
 describe("billing ledger", () => {
-  let store: BillingStore;
+  let store: MemoryBillingStore;
   const now = new Date("2026-09-30T12:00:00+08:00");
 
   beforeEach(() => {
