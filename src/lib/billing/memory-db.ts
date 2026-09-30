@@ -122,6 +122,46 @@ export function createMemoryBillingStore(opts?: {
       // audit no-op in memory tests
     },
 
+    async transferDailyGrantRemaining(
+      fromSubjectId,
+      toSubjectId,
+      grantDate,
+      expiresAt,
+    ) {
+      const fromLots = lots.filter(
+        (l) =>
+          l.subjectId === fromSubjectId &&
+          l.kind === "daily_grant" &&
+          l.remaining > 0,
+      );
+      const remaining = fromLots.reduce((s, l) => s + l.remaining, 0);
+      if (remaining <= 0) return 0;
+      for (const l of fromLots) l.remaining = 0;
+
+      const existing = lots.find(
+        (l) =>
+          l.subjectId === toSubjectId &&
+          l.kind === "daily_grant" &&
+          l.grantDate === grantDate,
+      );
+      if (existing) {
+        existing.remaining += remaining;
+        existing.amount += remaining;
+      } else {
+        lots.push({
+          id: id("lot"),
+          subjectId: toSubjectId,
+          kind: "daily_grant",
+          amount: remaining,
+          remaining,
+          grantDate,
+          expiresAt,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      return remaining;
+    },
+
     setActiveSubscription(userId, sub) {
       subs.set(userId, sub);
     },

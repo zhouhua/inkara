@@ -31,6 +31,12 @@ export type BillingStore = {
     reason: string;
     via: string;
   }): Promise<void>;
+  transferDailyGrantRemaining(
+    fromSubjectId: string,
+    toSubjectId: string,
+    grantDate: string,
+    expiresAt: string,
+  ): Promise<number>;
   /** test helpers — optional on production adapters */
   setActiveSubscription?(userId: string, sub: ActiveSubscription): void;
   addPurchased?(subjectId: string, amount: number): void;
