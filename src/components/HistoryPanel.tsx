@@ -6,31 +6,23 @@ import { HistoryCalendar } from "@/components/HistoryCalendar";
 import { t, type Locale } from "@/lib/i18n";
 import { toDayKey } from "@/lib/dates";
 import { filterHistoryPagesHybrid } from "@/lib/history-filter";
-import {
-  clearMemory,
-  deleteMemoryPage,
-  loadMemory,
-  type MemoryPage,
-} from "@/lib/memory";
+import type { MemoryPage } from "@/lib/memory";
+import { useMemoryStore } from "@/stores/memory-store";
 
 type Props = {
   open: boolean;
   locale: Locale;
   onClose: () => void;
-  onMemoryChange: (count: number) => void;
   onRelive: (page: MemoryPage) => void;
 };
 
-export function HistoryPanel({
-  open,
-  locale,
-  onClose,
-  onMemoryChange,
-  onRelive,
-}: Props) {
+export function HistoryPanel({ open, locale, onClose, onRelive }: Props) {
   const titleId = useId();
   const searchId = useId();
-  const [revision, setRevision] = useState(0);
+  const pagesAsc = useMemoryStore((s) => s.pages);
+  const clear = useMemoryStore((s) => s.clear);
+  const remove = useMemoryStore((s) => s.remove);
+  const refresh = useMemoryStore((s) => s.refresh);
   const [confirmClear, setConfirmClear] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -38,14 +30,17 @@ export function HistoryPanel({
 
   const pages = useMemo(() => {
     if (!open) return [];
-    void revision;
-    return [...loadMemory()].reverse();
-  }, [open, revision]);
+    return [...pagesAsc].reverse();
+  }, [open, pagesAsc]);
 
   const timestamps = useMemo(
     () => pages.map((p) => p.createdAt),
     [pages]
   );
+
+  useEffect(() => {
+    if (open) refresh();
+  }, [open, refresh]);
 
   useEffect(() => {
     if (!open) {
@@ -107,9 +102,7 @@ export function HistoryPanel({
                 type="button"
                 className="ink-link active"
                 onClick={() => {
-                  clearMemory();
-                  setRevision((n) => n + 1);
-                  onMemoryChange(0);
+                  clear();
                   setConfirmClear(false);
                   setSelectedDay(null);
                   setQuery("");
@@ -189,9 +182,7 @@ export function HistoryPanel({
                     type="button"
                     className="ink-link history-delete"
                     onClick={() => {
-                      const next = deleteMemoryPage(page.id);
-                      setRevision((n) => n + 1);
-                      onMemoryChange(next.length);
+                      const next = remove(page.id);
                       if (
                         selectedDay &&
                         !next.some((p) => toDayKey(p.createdAt) === selectedDay)

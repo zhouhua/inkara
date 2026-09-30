@@ -69,6 +69,17 @@ function syncCacheFromDb() {
   memoryCache = normalizeMemory(getCachedMemoryRaw());
 }
 
+/**
+ * hydrateDb may finish (and unblock writers) before hydrateMemory copies
+ * IDB into memoryCache. Mutating against an empty cache would overwrite
+ * the store with a single page — sync first when still clean.
+ */
+function ensureSyncedFromIdb() {
+  if (!isDbHydrated()) return;
+  if (isMemoryDirty()) return;
+  syncCacheFromDb();
+}
+
 function persist(pages: MemoryPage[]) {
   const prevIds = new Set(memoryCache.map((p) => p.id));
   const trimmed = pages.slice(-MAX_PAGES);
@@ -120,6 +131,7 @@ function enqueueOrRun(op: PendingOp): MemoryPage[] {
     });
     return [...memoryCache];
   }
+  ensureSyncedFromIdb();
   if (op.kind === "clear") {
     persist([]);
     void clearEmbeddings();

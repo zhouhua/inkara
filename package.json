@@ -28,7 +28,8 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "reicon-react": "^1.2.5",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.1",

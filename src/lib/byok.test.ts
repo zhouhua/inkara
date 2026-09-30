@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { validateByokFields } from "@/lib/byok";
+import {
+  maskApiKey,
+  validateByokDraft,
+  validateByokFields,
+} from "@/lib/byok";
 
 describe("validateByokFields", () => {
   it("requires api key", () => {
@@ -28,5 +32,29 @@ describe("validateByokFields", () => {
         baseUrl: "https://api.example.com/v1",
       })
     ).toEqual({});
+  });
+});
+
+describe("validateByokDraft", () => {
+  it("allows all-empty as clear", () => {
+    expect(
+      validateByokDraft({ apiKey: "", baseUrl: "  ", model: "" })
+    ).toEqual({});
+  });
+
+  it("requires key when other fields are set", () => {
+    expect(
+      validateByokDraft({ apiKey: "", baseUrl: "", model: "gpt-4o" })
+    ).toEqual({ apiKey: "byokKeyRequired" });
+  });
+});
+
+describe("maskApiKey", () => {
+  it("masks long keys", () => {
+    expect(maskApiKey("sk-abcdefghijklmnop")).toBe("sk-a…mnop");
+  });
+
+  it("returns empty for blank", () => {
+    expect(maskApiKey("  ")).toBe("");
   });
 });

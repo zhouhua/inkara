@@ -54,8 +54,6 @@ import {
 import {
   appendMemory,
   beginNewChapterSession,
-  clearMemory,
-  hydrateMemory,
   recentContext,
   type MemoryPage,
 } from "@/lib/memory";
@@ -84,13 +82,18 @@ import {
 import {
   defaultSettings,
   hasUserApiKey,
-  hydrateSettings,
   idleMsFor,
-  loadSettings,
-  patchSettings,
   type AppSettings,
   type InputMode,
 } from "@/lib/settings";
+import { useMemoryStore } from "@/stores/memory-store";
+import {
+  getPhase,
+  setPhase,
+  useSessionStore,
+} from "@/stores/session-store";
+import { useSettingsStore } from "@/stores/settings-store";
+import { useUiStore } from "@/stores/ui-store";
 import {
   drawStroke,
   pointerToPoint,
@@ -104,14 +107,6 @@ import {
   computeDialoguePark,
   measureDialogueCssBounds,
 } from "@/lib/dialogue-layout";
-
-type Phase =
-  | "ready"
-  | "writing"
-  | "thinking"
-  | "answering"
-  | "recalling"
-  | "error";
 
 const INK = "#1c2233";
 const REPLY_INK = "#2a3145";
@@ -140,7 +135,6 @@ export function InkPage() {
   const idleRafRef = useRef<number | null>(null);
   const idleStartedAtRef = useRef(0);
   const idleDurationRef = useRef(0);
-  const phaseRef = useRef<Phase>("ready");
   const settingsRef = useRef<AppSettings>(SSR_SETTINGS);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -161,22 +155,28 @@ export function InkPage() {
   const liveReplyRef = useRef("");
   const streamDoneRef = useRef(false);
 
-  const [phase, setPhase] = useState<Phase>("ready");
-  const [inputMode, setInputMode] = useState<InputMode>("pen");
+  const phase = useSessionStore((s) => s.phase);
+  const inputMode = useSettingsStore((s) => s.settings.inputMode);
   const [typedText, setTypedText] = useState("");
   const [readAsText, setReadAsText] = useState<string | null>(null);
   const [readAsTopPx, setReadAsTopPx] = useState<number | null>(null);
   const readAsTextRef = useRef<string | null>(null);
   const [idleProgress, setIdleProgress] = useState(0);
   const [idleArmed, setIdleArmed] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [settings, setSettings] = useState<AppSettings>(SSR_SETTINGS);
-  const settingsDirtyRef = useRef(false);
-  const [dbReady, setDbReady] = useState(false);
+  const settings = useSettingsStore((s) => s.settings);
+  const patchSettingsStore = useSettingsStore((s) => s.patch);
+  const hydrateSettingsStore = useSettingsStore((s) => s.hydrate);
+  const hydrateMemoryStore = useMemoryStore((s) => s.hydrate);
+  const refreshMemory = useMemoryStore((s) => s.refresh);
+  const dbReady = useUiStore((s) => s.dbReady);
+  const setDbReady = useUiStore((s) => s.setDbReady);
+  const settingsOpen = useUiStore((s) => s.settingsOpen);
+  const helpOpen = useUiStore((s) => s.helpOpen);
+  const historyOpen = useUiStore((s) => s.historyOpen);
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
+  const setHelpOpen = useUiStore((s) => s.setHelpOpen);
+  const setHistoryOpen = useUiStore((s) => s.setHistoryOpen);
   const dbReadyRef = useRef(false);
-  const [, setMemoryCount] = useState(0);
   const [statusExtra, setStatusExtra] = useState<string | null>(null);
   const [awaitingContinue, setAwaitingContinue] = useState(false);
   const [hasDialogueBackground, setHasDialogueBackground] = useState(false);
@@ -199,11 +199,6 @@ export function InkPage() {
   /** Visual: ink/text soaking into paper while phase is already `thinking`. */
   const [inkSinking, setInkSinking] = useState(false);
 
-  const setPhaseBoth = useCallback((p: Phase) => {
-    phaseRef.current = p;
-    setPhase(p);
-  }, []);
-
   useEffect(() => subscribeEmbeddingLoad(setEmbedLoad), []);
 
   useEffect(() => {
@@ -211,20 +206,21 @@ export function InkPage() {
   }, [settings]);
 
   useEffect(() => {
+    dbReadyRef.current = dbReady;
+  }, [dbReady]);
+
+  useEffect(() => {
     let cancelled = false;
     void (async () => {
       await hydrateDb();
-      const nextSettings = await hydrateSettings();
-      const pages = await hydrateMemory();
+      const nextSettings = await hydrateSettingsStore();
+      await hydrateMemoryStore();
       await hydrateQuota();
       if (cancelled) return;
       // Don't clobber in-session edits that landed before hydrate finished.
-      if (!settingsDirtyRef.current) {
-        setSettings(nextSettings);
+      if (!useSettingsStore.getState().dirty) {
         settingsRef.current = nextSettings;
-        setInputMode(nextSettings.inputMode);
       }
-      setMemoryCount(pages.length);
       dbReadyRef.current = true;
       setDbReady(true);
     })();
@@ -325,17 +321,15 @@ export function InkPage() {
 
   const applySettingsPatch = useCallback(
     (patch: Partial<AppSettings>) => {
-      settingsDirtyRef.current = true;
-      const next = patchSettings(patch);
+      const next = patchSettingsStore(patch);
       // Sync ref immediately so idle auto-submit cannot race on a stale mode.
       settingsRef.current = next;
-      setSettings(next);
       if (next.submitMode !== "auto") {
         clearIdle();
       }
       return next;
     },
-    [clearIdle]
+    [clearIdle, patchSettingsStore]
   );
 
   const syncEditHistory = useCallback((mode: InputMode) => {
@@ -500,9 +494,9 @@ export function InkPage() {
       writePaperMessage(t(settingsRef.current.locale, messageKey));
       setPaperErrorAction(action);
       setStatusExtra(null);
-      setPhaseBoth("error");
+      setPhase("error");
     },
-    [setPhaseBoth, writePaperMessage]
+    [writePaperMessage]
   );
 
   const animateRecallPage = useCallback(
@@ -839,8 +833,8 @@ export function InkPage() {
     setHasDialogueBackground(false);
     setRecallCite(null);
     setOpenCiteIndex(null);
-    setPhaseBoth("ready");
-  }, [clearDialoguePark, clearReplyLayer, setPhaseBoth]);
+    setPhase("ready");
+  }, [clearDialoguePark, clearReplyLayer]);
 
   const runAsk = useCallback(
     async (
@@ -873,7 +867,7 @@ export function InkPage() {
       const startRevealIfNeeded = () => {
         if (!revealGateOpen || revealStarted || !liveReplyRef.current) return;
         revealStarted = true;
-        setPhaseBoth("answering");
+        setPhase("answering");
         reveal.promise = revealAnswerLive(
           () => liveReplyRef.current,
           () => streamDoneRef.current,
@@ -885,10 +879,10 @@ export function InkPage() {
         if (revealGateOpen || animSignal.cancelled) return;
         revealGateOpen = true;
         if (
-          phaseRef.current === "thinking" &&
+          getPhase() === "thinking" &&
           liveReplyRef.current
         ) {
-          setPhaseBoth("answering");
+          setPhase("answering");
         }
         if (pendingReadAs) {
           showReadAsQuote(pendingReadAs);
@@ -898,7 +892,7 @@ export function InkPage() {
       };
 
       if (!opts?.gateReveal) {
-        setPhaseBoth("thinking");
+        setPhase("thinking");
       } else {
         void opts.gateReveal.then(() => {
           openRevealGate();
@@ -996,7 +990,7 @@ export function InkPage() {
             ?.clearRect(0, 0, replyCanvas.width, replyCanvas.height);
           setRecallCite(null);
           setOpenCiteIndex(null);
-          setPhaseBoth("recalling");
+          setPhase("recalling");
 
           const query =
             result.recallQuery ||
@@ -1056,7 +1050,7 @@ export function InkPage() {
           reveal.promise = null;
 
           if (citePages.length === 0) {
-            setPhaseBoth("thinking");
+            setPhase("thinking");
             const missResult = await askPageStream(
               {
                 locale,
@@ -1093,7 +1087,7 @@ export function InkPage() {
             if (reveal.promise) {
               await reveal.promise;
             } else if (missReply.trim()) {
-              setPhaseBoth("answering");
+              setPhase("answering");
               await revealAnswerLive(
                 () => missReply,
                 () => true,
@@ -1106,20 +1100,20 @@ export function InkPage() {
               return;
             }
 
-            const pages = appendMemory({
+            appendMemory({
               transcription,
               reply: missReply,
             });
-            setMemoryCount(pages.length);
+            refreshMemory();
             recallingRef.current = false;
             setAwaitingContinue(true);
             setHasDialogueBackground(false);
             clearDialoguePark();
-            setPhaseBoth("ready");
+            setPhase("ready");
             return;
           }
 
-          setPhaseBoth("thinking");
+          setPhase("thinking");
           const citeResult = await askPageStream(
             {
               locale,
@@ -1150,7 +1144,7 @@ export function InkPage() {
           streamDoneRef.current = true;
 
           setRecallCite({ reply: citeReply, pages: citePages });
-          setPhaseBoth("answering");
+          setPhase("answering");
           await sleep(prefersReducedMotion() ? 0 : 420);
 
           if (animSignal.cancelled) {
@@ -1158,16 +1152,16 @@ export function InkPage() {
             return;
           }
 
-          const pages = appendMemory({
+          appendMemory({
             transcription,
             reply: stripCiteMarkers(citeReply) || citeReply,
           });
-          setMemoryCount(pages.length);
+          refreshMemory();
           recallingRef.current = false;
           setAwaitingContinue(true);
           setHasDialogueBackground(false);
           clearDialoguePark();
-          setPhaseBoth("ready");
+          setPhase("ready");
           return;
         }
 
@@ -1178,7 +1172,7 @@ export function InkPage() {
         if (reveal.promise) {
           await reveal.promise;
         } else if (finalReply.trim()) {
-          setPhaseBoth("answering");
+          setPhase("answering");
           await revealAnswerLive(
             () => finalReply,
             () => true,
@@ -1191,15 +1185,15 @@ export function InkPage() {
           return;
         }
 
-        const pages = appendMemory({
+        appendMemory({
           transcription,
           reply: finalReply,
         });
-        setMemoryCount(pages.length);
+        refreshMemory();
         setAwaitingContinue(true);
         setHasDialogueBackground(false);
         clearDialoguePark();
-        setPhaseBoth("ready");
+        setPhase("ready");
       } catch (e) {
         if (
           (e instanceof DOMException && e.name === "AbortError") ||
@@ -1226,9 +1220,9 @@ export function InkPage() {
     [
       clearDialoguePark,
       clearReplyLayer,
+      refreshMemory,
       resetToReady,
       revealAnswerLive,
-      setPhaseBoth,
       showReadAsQuote,
       showPaperError,
     ]
@@ -1238,18 +1232,19 @@ export function InkPage() {
     if (awaitingContinue) return;
     if (!dbReadyRef.current) {
       await whenDbReady();
-      await hydrateSettings();
-      if (!settingsDirtyRef.current) {
-        const s = loadSettings();
+      await hydrateMemoryStore();
+      const s = await hydrateSettingsStore();
+      if (!useSettingsStore.getState().dirty) {
         settingsRef.current = s;
-        setSettings(s);
+      } else {
+        settingsRef.current = useSettingsStore.getState().settings;
       }
       dbReadyRef.current = true;
       setDbReady(true);
     }
-    if (phaseRef.current !== "writing" && phaseRef.current !== "ready") return;
+    if (getPhase() !== "writing" && getPhase() !== "ready") return;
     if (!hasContent()) {
-      setPhaseBoth("ready");
+      setPhase("ready");
       return;
     }
 
@@ -1273,10 +1268,9 @@ export function InkPage() {
     }
 
     const typedSnapshot = typedTextRef.current.trim();
-    setPhaseBoth("thinking");
+    setPhase("thinking");
     setInkSinking(true);
-    const cached = loadSettings();
-    if (!cached.hasCommittedOnce) {
+    if (!settingsRef.current.hasCommittedOnce) {
       applySettingsPatch({ hasCommittedOnce: true });
     }
     clearReadAs();
@@ -1336,11 +1330,13 @@ export function InkPage() {
     clearIdle,
     clearReadAs,
     hasContent,
+    hydrateMemoryStore,
+    hydrateSettingsStore,
     inputMode,
     resetEditHistory,
     resetToReady,
     runAsk,
-    setPhaseBoth,
+    setDbReady,
   ]);
 
   useEffect(() => {
@@ -1413,18 +1409,17 @@ export function InkPage() {
     redrawInkLayer();
     syncEditHistory("pen");
     if (hasPenInk()) {
-      setPhaseBoth("writing");
+      setPhase("writing");
       scheduleIdle();
     } else {
       clearIdle();
-      setPhaseBoth("ready");
+      setPhase("ready");
     }
   }, [
     clearIdle,
     hasPenInk,
     redrawInkLayer,
     scheduleIdle,
-    setPhaseBoth,
     syncEditHistory,
   ]);
 
@@ -1433,18 +1428,18 @@ export function InkPage() {
       syncEditHistory("type");
       setStatusExtra(null);
       if (value.trim()) {
-        setPhaseBoth("writing");
+        setPhase("writing");
         scheduleIdle();
       } else {
         clearIdle();
-        setPhaseBoth("ready");
+        setPhase("ready");
       }
     },
-    [clearIdle, scheduleIdle, setPhaseBoth, syncEditHistory]
+    [clearIdle, scheduleIdle, syncEditHistory]
   );
 
   const canEditNow = () => {
-    const p = phaseRef.current;
+    const p = getPhase();
     return (
       p !== "thinking" &&
       p !== "answering" &&
@@ -1518,7 +1513,7 @@ export function InkPage() {
     setPaperErrorAction(null);
     if (action === "open_settings") {
       clearReplyLayer();
-      setPhaseBoth("ready");
+      setPhase("ready");
       if (dbReadyRef.current) setSettingsOpen(true);
       else {
         void whenDbReady().then(() => setSettingsOpen(true));
@@ -1530,19 +1525,19 @@ export function InkPage() {
       return;
     }
     clearReplyLayer();
-    setPhaseBoth("ready");
-  }, [clearReplyLayer, paperErrorAction, retryLastCommit, setPhaseBoth]);
+    setPhase("ready");
+  }, [clearReplyLayer, paperErrorAction, retryLastCommit]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (handlePaperPointer()) return;
     if (awaitingContinue) return;
-    if (phaseRef.current === "error") return;
+    if (getPhase() === "error") return;
 
     if (inputMode !== "pen") return;
     if (
-      phaseRef.current === "thinking" ||
-      phaseRef.current === "answering" ||
-      phaseRef.current === "recalling"
+      getPhase() === "thinking" ||
+      getPhase() === "answering" ||
+      getPhase() === "recalling"
     ) {
       return;
     }
@@ -1557,7 +1552,7 @@ export function InkPage() {
     const isDouble =
       lastTapArmedRef.current &&
       now - lastTapAtRef.current < DOUBLE_TAP_MS &&
-      (phaseRef.current === "writing" || phaseRef.current === "ready") &&
+      (getPhase() === "writing" || getPhase() === "ready") &&
       hasContent() &&
       !currentRef.current;
 
@@ -1595,7 +1590,7 @@ export function InkPage() {
 
     const ctx = getInkCtx();
     if (ctx) drawStroke(ctx, stroke, dprRef.current);
-    setPhaseBoth("writing");
+    setPhase("writing");
     scheduleIdle();
   };
 
@@ -1649,29 +1644,29 @@ export function InkPage() {
     }
 
     if (
-      phaseRef.current === "thinking" ||
-      phaseRef.current === "answering" ||
-      phaseRef.current === "recalling" ||
-      phaseRef.current === "error"
+      getPhase() === "thinking" ||
+      getPhase() === "answering" ||
+      getPhase() === "recalling" ||
+      getPhase() === "error"
     ) {
       return;
     }
     if (hasContent()) {
-      setPhaseBoth("writing");
+      setPhase("writing");
       scheduleIdle();
     } else {
-      setPhaseBoth("ready");
+      setPhase("ready");
     }
     syncEditHistory("pen");
   };
 
   const onTypedChange = (value: string) => {
     if (awaitingContinue) return;
-    if (phaseRef.current === "error") return;
+    if (getPhase() === "error") return;
     if (
-      phaseRef.current === "thinking" ||
-      phaseRef.current === "answering" ||
-      phaseRef.current === "recalling"
+      getPhase() === "thinking" ||
+      getPhase() === "answering" ||
+      getPhase() === "recalling"
     ) {
       return;
     }
@@ -1710,8 +1705,8 @@ export function InkPage() {
 
     if (e.key !== "Enter" || e.shiftKey) return;
     if (
-      phaseRef.current !== "writing" &&
-      phaseRef.current !== "ready"
+      getPhase() !== "writing" &&
+      getPhase() !== "ready"
     ) {
       return;
     }
@@ -1723,9 +1718,9 @@ export function InkPage() {
 
   const switchMode = (mode: InputMode) => {
     if (
-      phaseRef.current === "thinking" ||
-      phaseRef.current === "answering" ||
-      phaseRef.current === "recalling"
+      getPhase() === "thinking" ||
+      getPhase() === "answering" ||
+      getPhase() === "recalling"
     ) {
       return;
     }
@@ -1748,14 +1743,13 @@ export function InkPage() {
     }
     setEditHistory({ undo: 0, redo: 0 });
 
-    setInputMode(mode);
     applySettingsPatch({ inputMode: mode });
 
     const stillWriting =
       mode === "pen"
         ? strokesRef.current.some((s) => !s.erase && s.points.length > 0)
         : typedTextRef.current.trim().length > 0;
-    setPhaseBoth(stillWriting ? "writing" : "ready");
+    setPhase(stillWriting ? "writing" : "ready");
   };
 
   const clearInputOnly = useCallback(() => {
@@ -1774,8 +1768,8 @@ export function InkPage() {
     const ink = inkRef.current;
     ink?.getContext("2d")?.clearRect(0, 0, ink.width, ink.height);
     setStatusExtra(null);
-    setPhaseBoth("ready");
-  }, [clearIdle, clearReadAs, resetEditHistory, setPhaseBoth]);
+    setPhase("ready");
+  }, [clearIdle, clearReadAs, resetEditHistory]);
 
   const newChapter = useCallback(() => {
     clearInputOnly();
@@ -1811,7 +1805,7 @@ export function InkPage() {
       clearReadAs();
       setRecallCite(null);
       setOpenCiteIndex(null);
-      setPhaseBoth("recalling");
+      setPhase("recalling");
       clearReplyLayer();
       await animateRecallPage(page, animSignalRef.current);
       recallingRef.current = false;
@@ -1820,14 +1814,13 @@ export function InkPage() {
       requestAnimationFrame(() => {
         parkDialogueForWriting();
       });
-      setPhaseBoth("ready");
+      setPhase("ready");
     },
     [
       animateRecallPage,
       clearReadAs,
       clearReplyLayer,
       parkDialogueForWriting,
-      setPhaseBoth,
     ]
   );
 
@@ -1878,7 +1871,7 @@ export function InkPage() {
 
     const tryCommit = () => {
       if (
-        (phaseRef.current === "ready" || phaseRef.current === "writing") &&
+        (getPhase() === "ready" || getPhase() === "writing") &&
         hasContent()
       ) {
         clearIdle();
@@ -1910,7 +1903,7 @@ export function InkPage() {
 
       const mod = e.metaKey || e.ctrlKey;
       if (mod && (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")) {
-        if (phaseRef.current !== "ready" && phaseRef.current !== "writing") {
+        if (getPhase() !== "ready" && getPhase() !== "writing") {
           return;
         }
         // Textarea handles undo/redo in onTypeKeyDown.
@@ -1929,7 +1922,7 @@ export function InkPage() {
       }
 
       if (e.key !== "Enter" || e.shiftKey) return;
-      if (phaseRef.current !== "ready" && phaseRef.current !== "writing") {
+      if (getPhase() !== "ready" && getPhase() !== "writing") {
         return;
       }
       if (!hasContent()) return;
@@ -2306,11 +2299,6 @@ export function InkPage() {
           if (!dbReadyRef.current) return;
           applySettingsPatch(patch);
         }}
-        onClearMemory={() => {
-          if (!dbReadyRef.current) return;
-          clearMemory();
-          setMemoryCount(0);
-        }}
       />
 
       <HelpPanel
@@ -2323,7 +2311,6 @@ export function InkPage() {
         open={historyOpen}
         locale={settings.locale}
         onClose={() => setHistoryOpen(false)}
-        onMemoryChange={setMemoryCount}
         onRelive={(page) => void reliveMemoryPage(page)}
       />
     </div>
