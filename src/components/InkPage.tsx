@@ -212,7 +212,6 @@ export function InkPage() {
       await hydrateDb();
       const nextSettings = await hydrateSettingsStore();
       await hydrateMemoryStore();
-      await hydrateQuota();
       if (cancelled) return;
       // Don't clobber in-session edits that landed before hydrate finished.
       if (!useSettingsStore.getState().dirty) {
