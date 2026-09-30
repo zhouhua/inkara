@@ -22,7 +22,14 @@ vi.mock("@/lib/llm", async () => {
   };
 });
 
+vi.mock("@/lib/billing/gate", () => ({
+  gateAskConsume: vi.fn(async () => ({ ok: true, subjectId: "test-subject" })),
+}));
+
 import { POST } from "@/app/api/ask/route";
+import { gateAskConsume } from "@/lib/billing/gate";
+
+const gateAskConsumeMock = vi.mocked(gateAskConsume);
 
 function jsonRequest(body: unknown) {
   return new Request("http://localhost/api/ask", {
@@ -57,6 +64,8 @@ function mockSuccessfulStream(output: {
 beforeEach(() => {
   streamText.mockReset();
   createLlmModel.mockClear();
+  gateAskConsumeMock.mockReset();
+  gateAskConsumeMock.mockResolvedValue({ ok: true, subjectId: "test-subject" });
   process.env.MODEL_API_KEY = "env-key";
   process.env.MODEL_BASE_URL = "https://example.com/v1";
   process.env.MODEL_NAME = "test-model";
@@ -84,6 +93,20 @@ describe("POST /api/ask", () => {
     await expect(res.json()).resolves.toMatchObject({
       error: "missing_api_key",
     });
+  });
+
+  it("returns 429 when billing quota exhausted", async () => {
+    gateAskConsumeMock.mockResolvedValue({
+      ok: false,
+      status: 429,
+      error: "quota_exhausted",
+    });
+    const res = await POST(jsonRequest({ typedText: "你好" }));
+    expect(res.status).toBe(429);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "quota_exhausted",
+    });
+    expect(streamText).not.toHaveBeenCalled();
   });
 
   it("streams done event for typed answer", async () => {

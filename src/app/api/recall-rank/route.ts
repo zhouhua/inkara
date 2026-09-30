@@ -42,11 +42,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const resolved = resolveLlmCredentials({
-    apiKey: body.apiKey,
-    baseUrl: body.baseUrl,
-    model: body.model,
-  });
+  const resolved = resolveLlmCredentials({});
   if (!resolved.ok) {
     return Response.json(
       { error: resolved.error, message: resolved.message },

@@ -9,6 +9,7 @@ import {
   type RecallCitePageInput,
 } from "@/lib/prompts";
 import { askObjectSchema } from "@/lib/ask-schema";
+import { gateAskConsume } from "@/lib/billing/gate";
 import { createLlmModel, resolveLlmCredentials } from "@/lib/llm";
 import { APICallError, Output, streamText } from "ai";
 
@@ -100,11 +101,26 @@ export async function POST(req: Request) {
     return jsonError({ error: "missing_image" }, 400);
   }
 
-  const resolved = resolveLlmCredentials({
-    apiKey: body.apiKey,
-    baseUrl: body.baseUrl,
-    model: body.model,
-  });
+  const gate = await gateAskConsume(req);
+  if (!gate.ok) {
+    return jsonError(
+      { error: gate.error, message: gate.message },
+      gate.status,
+    );
+  }
+
+  // Platform credentials only — ignore body BYOK (ALLOW_BYOK=1 in development only).
+  const allowByok =
+    process.env.NODE_ENV === "development" && process.env.ALLOW_BYOK === "1";
+  const resolved = resolveLlmCredentials(
+    allowByok
+      ? {
+          apiKey: body.apiKey,
+          baseUrl: body.baseUrl,
+          model: body.model,
+        }
+      : {},
+  );
   if (!resolved.ok) {
     return jsonError(
       { error: resolved.error, message: resolved.message },
