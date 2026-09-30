@@ -205,9 +205,9 @@ git commit -m "feat(billing): anonymous daily grant and merge on login"
 
 ## Phase A done when
 
-- [ ] D1 migration 可 apply  
-- [ ] ledger 单测全绿  
-- [ ] 可登录并 `GET /api/billing/me` 看到结构  
-- [ ] README 写明 `AUTH_*`、`DB` 绑定  
+- [x] D1 migration 可 apply  
+- [x] ledger 单测全绿  
+- [x] 可登录并 `GET /api/billing/me` 看到结构  
+- [x] README 写明 `AUTH_*`、`DB` 绑定  
 
 **Next:** Phase B — ask 闸门 + 去 BYOK UX（可用 SQL/`wrangler d1 execute` 给测试用户塞 `purchased` 积分验收）。
