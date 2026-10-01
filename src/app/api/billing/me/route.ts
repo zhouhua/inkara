@@ -53,11 +53,22 @@ export async function GET(req: Request) {
     }
     await ensureDailyGrant(store, session.user.id, now);
     const balance = await getBalance(store, session.user.id, now);
+    const subRow = await db
+      .prepare(
+        `SELECT cancel_at_period_end FROM subscriptions
+         WHERE user_id = ? AND status = 'active'
+         ORDER BY current_period_end DESC LIMIT 1`,
+      )
+      .bind(session.user.id)
+      .first<{ cancel_at_period_end: number }>();
     return Response.json({
       anonymous: false,
       userId: session.user.id,
       email: session.user.email ?? null,
-      subscription: { active: balance.hasActiveSubscription },
+      subscription: {
+        active: balance.hasActiveSubscription,
+        cancelAtPeriodEnd: Boolean(subRow?.cancel_at_period_end),
+      },
       usage: balance.usage,
       period: balance.period,
       credits: {

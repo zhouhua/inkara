@@ -112,9 +112,9 @@ export const CATALOG = {
 
 ## Phase C done when
 
-- [ ] 真实或沙箱支付成功 → 积分或订阅可查  
-- [ ] 重复 webhook 不双倍入账  
-- [ ] 用户可取消续费  
-- [ ] PRD-06 Acceptance 清单可勾完  
+- [x] 真实或沙箱支付成功 → 积分或订阅可查  
+- [x] 重复 webhook 不双倍入账  
+- [x] 用户可取消续费  
+- [x] PRD-06 Acceptance 清单可勾完  
 
 **之后可选 Phase D（不在本计划）：** 微信登录、官方商户迁移、上游 5xx 自动退次、异常限流仪表。

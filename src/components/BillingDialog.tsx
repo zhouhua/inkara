@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { t, type Locale } from "@/lib/i18n";
+import type { SkuId } from "@/lib/billing/catalog";
 
 type BillingMe = {
   anonymous?: boolean;
   email?: string | null;
   credits?: { purchased: number; daily: number; goodwill: number };
-  subscription?: { active: boolean };
+  subscription?: { active: boolean; cancelAtPeriodEnd?: boolean };
   usage?: number;
 };
 
@@ -18,7 +19,7 @@ type Props = {
 };
 
 const SKUS: {
-  id: string;
+  id: SkuId;
   price: string;
   labelKey:
     | "billingSku_sub_month"
@@ -40,16 +41,25 @@ export function BillingDialog({ open, locale, onClose }: Props) {
   const titleId = useId();
   const [me, setMe] = useState<BillingMe | null>(null);
   const [loading, setLoading] = useState(false);
+  const [busySku, setBusySku] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refreshMe = useCallback(async () => {
+    await fetch("/api/billing/anon", { method: "POST" });
+    const res = await fetch("/api/billing/me");
+    const data = (await res.json()) as BillingMe;
+    setMe(data);
+    return data;
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
+    setError(null);
     void (async () => {
       try {
-        await fetch("/api/billing/anon", { method: "POST" });
-        const res = await fetch("/api/billing/me");
-        const data = (await res.json()) as BillingMe;
+        const data = await refreshMe();
         if (!cancelled) setMe(data);
       } catch {
         if (!cancelled) setMe(null);
@@ -60,7 +70,62 @@ export function BillingDialog({ open, locale, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, refreshMe]);
+
+  // After mock/xunhu return (?billing=return), poll briefly for balance.
+  useEffect(() => {
+    if (!open) return;
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("billing") !== "return") return;
+    let n = 0;
+    const id = window.setInterval(() => {
+      n += 1;
+      void refreshMe();
+      if (n >= 8) window.clearInterval(id);
+    }, 1500);
+    return () => window.clearInterval(id);
+  }, [open, refreshMe]);
+
+  const onBuy = async (sku: SkuId) => {
+    setError(null);
+    setBusySku(sku);
+    try {
+      const res = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sku }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        message?: string;
+        payUrl?: string;
+      };
+      if (!res.ok || !data.payUrl) {
+        setError(data.message ?? data.error ?? t(locale, "billingCheckoutFailed"));
+        return;
+      }
+      window.location.href = data.payUrl;
+    } catch {
+      setError(t(locale, "billingCheckoutFailed"));
+    } finally {
+      setBusySku(null);
+    }
+  };
+
+  const onCancelRenew = async () => {
+    setError(null);
+    try {
+      const res = await fetch("/api/billing/cancel", { method: "POST" });
+      if (!res.ok) {
+        setError(t(locale, "billingCancelFailed"));
+        return;
+      }
+      await refreshMe();
+    } catch {
+      setError(t(locale, "billingCancelFailed"));
+    }
+  };
 
   if (!open) return null;
 
@@ -99,6 +164,9 @@ export function BillingDialog({ open, locale, onClose }: Props) {
             {me?.subscription?.active
               ? ` · ${t(locale, "billingSubActive")}`
               : ""}
+            {me?.subscription?.cancelAtPeriodEnd
+              ? ` · ${t(locale, "billingCancelAtEnd")}`
+              : ""}
           </p>
         ) : (
           <p className="billing-status">{t(locale, "billingNeedLogin")}</p>
@@ -110,6 +178,8 @@ export function BillingDialog({ open, locale, onClose }: Props) {
           </a>
         ) : null}
 
+        {error ? <p className="billing-error">{error}</p> : null}
+
         <ul className="billing-sku-list">
           {SKUS.map((sku) => (
             <li key={sku.id} className="billing-sku-row">
@@ -118,14 +188,26 @@ export function BillingDialog({ open, locale, onClose }: Props) {
               <button
                 type="button"
                 className="text-action"
-                disabled
-                title={t(locale, "billingPaymentSoon")}
+                disabled={!loggedIn || busySku === sku.id}
+                onClick={() => void onBuy(sku.id)}
               >
-                {t(locale, "billingPaymentSoon")}
+                {busySku === sku.id
+                  ? t(locale, "billingLoading")
+                  : t(locale, "billingBuy")}
               </button>
             </li>
           ))}
         </ul>
+
+        {loggedIn && me?.subscription?.active && !me.subscription.cancelAtPeriodEnd ? (
+          <button
+            type="button"
+            className="text-action billing-cancel"
+            onClick={() => void onCancelRenew()}
+          >
+            {t(locale, "billingCancelRenew")}
+          </button>
+        ) : null}
       </div>
     </div>
   );

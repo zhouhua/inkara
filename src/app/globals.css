@@ -1256,9 +1256,17 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
-.billing-sku-row button:disabled {
-  opacity: 0.55;
-  cursor: default;
+.billing-error {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: oklch(0.45 0.08 25);
+}
+
+.billing-cancel {
+  align-self: flex-start;
+  margin-top: var(--space-xs);
+  opacity: 0.8;
 }
 
 

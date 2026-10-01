@@ -55,16 +55,29 @@ E2E 会设置 `SKIP_OPENNEXT_CLOUDFLARE_DEV=1`，跳过 `next.config.ts` 里较�
 | `AUTH_RESEND_KEY` | Resend API Key；**未设时魔法链接只打印到服务端日志** | — |
 | `AUTH_EMAIL_FROM` | 发信地址 | `onboarding@resend.dev` |
 | `AUTH_TRUST_HOST` | 反代后信任 Host（Workers 建议 `true`） | Auth.js 内已 `trustHost: true` |
+| `NEXT_PUBLIC_APP_URL` | 站点绝对 URL（支付回调/回跳） | 请求 Origin |
+| `PAY_PROVIDER` | `mock`（默认本地）或 `xunhupay`（虎皮椒） | `mock` |
+| `PAY_MOCK_SECRET` | mock 支付校验串 | `inkara-mock-pay` |
+| `PAY_XH_APPID` / `PAY_XH_APPSECRET` | 虎皮椒商户 | — |
+| `PAY_XH_GATEWAY` | 虎皮椒下单网关 | 官方默认 |
 
-**计费 / 登录（Phase A）：** D1 绑定名 `DB`（库 `inkara-billing`，见 `wrangler.jsonc`）。本地迁移：
+**计费 / 登录：** D1 绑定名 `DB`（库 `inkara-billing`，见 `wrangler.jsonc`）。本地迁移：
 
 ```bash
 npx wrangler d1 migrations apply inkara-billing --local
+# 生产：
+npx wrangler d1 migrations apply inkara-billing --remote
 ```
 
 邮箱魔法链接：打开 `/api/auth/signin`，提交邮箱后看终端日志中的 `[inkara:auth] Magic link`；生产配置 `AUTH_RESEND_KEY` 后才会真发信。登录用户写入 D1 `users` 表。
 
-正式构建下由平台 `MODEL_*` 提供模型；匿名用户每天 2 次日免积分（服务端 D1）。额度用尽后需登录购买会员或积分包（支付 Phase C）。开发模式同样走服务端闸门。
+**支付（Phase C）：**
+
+- 默认 `PAY_PROVIDER=mock`：登录后点购买 → `/api/billing/mock-pay` 直接入账并回跳（仅开发）。
+- 生产设 `PAY_PROVIDER=xunhupay`，配置虎皮椒密钥；异步通知 URL：`{NEXT_PUBLIC_APP_URL}/api/billing/webhook`（需公网可达）。
+- 手动对账：按日导出 D1 `orders`（`status` / `sku` / `amount_fen` / `provider_trade_no`），与聚合商后台流水核对；重复 webhook 由 `fulfillOrder` 幂等消化。
+
+正式构建下由平台 `MODEL_*` 提供模型；匿名用户每天 2 次日免积分（服务端 D1）。额度用尽后登录购买会员或积分包。
 
 用户设定与历史仍在浏览器 IndexedDB；计费账本在服务端 D1。
 
