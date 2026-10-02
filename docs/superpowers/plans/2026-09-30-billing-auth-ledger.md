@@ -68,7 +68,7 @@
 "d1_databases": [
   {
     "binding": "DB",
-    "database_name": "inkara-billing",
+    "database_name": "inkara",
     "database_id": "<create via wrangler d1 create>"
   }
 ]
@@ -77,8 +77,8 @@
 - [ ] **Step 3: 本地 apply**
 
 ```bash
-npx wrangler d1 create inkara-billing
-npx wrangler d1 migrations apply inkara-billing --local
+npx wrangler d1 create inkara
+npx wrangler d1 migrations apply inkara --local
 ```
 
 Expected: 成功、无 SQL 错误。

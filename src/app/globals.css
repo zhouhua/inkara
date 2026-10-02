@@ -1269,6 +1269,43 @@ select {
   opacity: 0.8;
 }
 
+.billing-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.billing-channel {
+  appearance: none;
+  margin: 0;
+  padding: 0.28rem 0.65rem;
+  font: inherit;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  cursor: pointer;
+}
+
+.billing-channel.is-active {
+  color: var(--ink);
+  border-color: var(--ink-soft);
+}
+
+.billing-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.billing-qr-img {
+  width: 200px;
+  height: 200px;
+  background: white;
+}
+
 
 .text-action.is-primary {
   color: var(--ink);

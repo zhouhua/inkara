@@ -135,4 +135,4 @@ git commit -m "feat(billing): add BillingDialog with locked price list"
 - [x] 有测试积分时可完整手写问答  
 - [x] 纸面用尽 → BillingDialog  
 
-**Next:** Phase C — 聚合支付真正入账。
+**Next:** Phase C — 官方微信/支付宝真正入账。

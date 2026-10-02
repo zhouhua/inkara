@@ -12,7 +12,7 @@
 |------|------|
 | 模型供给 | 平台统一提供；**彻底移除**面向用户的 BYOK（Key / Endpoint / 模型） |
 | 变现 | **单档会员**（月/季/年）+ **积分包**；无多档权益差异 |
-| 市场 | 中国大陆；聚合支付（微信 + 支付宝） |
+| 市场 | 中国大陆；官方直连微信支付 + 支付宝（无聚合） |
 | 计量 | 每次成功回答 = **1 积分**（召回整轮也只扣 1） |
 | 身份 | 匿名可用当日免费积分；**购买 / 订阅必须登录** |
 | 免费 | 每日发放 **2** 点「**当天有效**」积分（统一账本，不再单独 `quota` 计数器） |
@@ -86,7 +86,7 @@ Auth.js（或 Clerk）+ **邮箱魔法链接** 先行；微信 OAuth 列为 Phas
 | `pack_150` | 一次性 | ¥25 | +150 `purchased` |
 | `pack_500` | 一次性 | ¥59 | +500 `purchased` |
 
-订阅续费：默认自动续（聚合侧能力若不足则 V1 做「到期前提醒 + 手动续」）。取消后续费停，**已付周期用满**。
+订阅续费：V1 做「到期前提醒 + 手动续」；取消后续费停，**已付周期用满**。
 
 ---
 
@@ -97,8 +97,12 @@ Auth.js（或 Clerk）+ **邮箱魔法链接** 先行；微信 OAuth 列为 Phas
 | POST | `/api/ask` | 计费闸门：鉴权/匿名 → `consume(1)` 成功后再调上游；失败回滚或标记 |
 | POST | `/api/recall-rank` | **不单独扣次**（成本计入同轮 ask）；但须同一用户会话 |
 | GET | `/api/billing/me` | 余额、订阅、本月用量、是否已发 goodwill |
-| POST | `/api/billing/checkout` | 创建支付单（sku）→ 跳转/二维码参数 |
-| POST | `/api/billing/webhook` | 聚合回调；验签；幂等入账 |
+| POST | `/api/billing/checkout` | 创建支付单（sku + channel）→ 跳转/二维码 |
+| POST | `/api/billing/webhook/[channel]` | 微信/支付宝回调；验签；幂等入账 |
+| GET/PUT | `/api/sync/settings` | 云端设定 |
+| GET/POST | `/api/sync/pages` | 日记页列表 / 追加（写页后 Workers AI → Vectorize） |
+| DELETE | `/api/sync/pages/[id]` | 删页 + 删向量 |
+| POST | `/api/recall` | 词法 ∪ Vectorize ANN |
 | GET/POST | `/api/auth/*` | 登录登出回调 |
 
 错误码（纸面映射）：
@@ -125,7 +129,7 @@ Worker 无本地库。V1 绑定 **D1**：
 - `orders`（id, user_id, sku, amount, status, provider_trade_no, raw）  
 - `ledger_entries`（审计：delta, reason, ref_order / ref_ask）
 
-客户端 IndexedDB：`quota` 表废弃；settings 去掉 apiKey/baseUrl/model。
+客户端不再使用 IndexedDB；设定 / 日记页存 D1 `inkara`，向量存 Vectorize `inkara-pages`（Workers AI bge-m3），匿名与登录共用 `subject_id` / namespace。
 
 ---
 

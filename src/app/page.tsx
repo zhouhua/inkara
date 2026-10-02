@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 
-/** Paper app is fully client-side (IndexedDB, canvas, pen) — SSR adds no value. */
+/** Paper app is client-side (canvas / pen / sync APIs) — SSR adds no value. */
 const InkPage = dynamic(
   () => import("@/components/InkPage").then((m) => m.InkPage),
   {

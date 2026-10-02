@@ -21,13 +21,9 @@ export type IdlePace = "fast" | "normal" | "slow";
 export type AppSettings = {
   locale: Locale;
   paperStyle: PaperStyleId;
-  /** Pen or keyboard input */
   inputMode: InputMode;
-  /** How pages are committed */
   submitMode: SubmitMode;
-  /** Delay pace when submitMode is auto */
   idlePace: IdlePace;
-  /** User has entered commit (thinking) at least once — dismisses first-run dock copy */
   hasCommittedOnce: boolean;
 };
 
@@ -49,12 +45,6 @@ export const defaultSettings: AppSettings = {
 };
 
 let settingsCache: AppSettings = { ...defaultSettings };
-
-/**
- * Saves requested before DB hydrate. Applied on top of IDB after hydrate
- * using field-level patches recorded separately when possible; full object
- * only replaces after ready (UI should not save pre-hydrate).
- */
 let pendingSave: AppSettings | null = null;
 
 function isSubmitMode(v: unknown): v is SubmitMode {
@@ -69,7 +59,6 @@ function isIdlePace(v: unknown): v is IdlePace {
   return typeof v === "string" && IDLE_PACES.includes(v as IdlePace);
 }
 
-/** Map legacy idleMs to nearest pace. */
 function paceFromMs(ms: number): IdlePace {
   let best: IdlePace = "normal";
   let bestDist = Infinity;
@@ -88,7 +77,7 @@ export function idleMsFor(settings: AppSettings): number {
 }
 
 export function normalizeSettings(
-  parsed: Partial<AppSettings> & { idleMs?: number } | null | undefined
+  parsed: Partial<AppSettings> & { idleMs?: number } | null | undefined,
 ): AppSettings {
   if (!parsed || typeof parsed !== "object") {
     return { ...defaultSettings };
@@ -122,7 +111,6 @@ export function normalizeSettings(
       : defaultSettings.inputMode,
     submitMode,
     idlePace,
-    // Legacy BYOK fields in IDB are ignored (platform billing).
     hasCommittedOnce: parsed.hasCommittedOnce === true,
   };
 }
@@ -130,7 +118,7 @@ export function normalizeSettings(
 function syncCacheFromDb() {
   if (isSettingsDirty()) return;
   settingsCache = normalizeSettings(
-    getCachedSettingsRaw() as Partial<AppSettings> | null
+    getCachedSettingsRaw() as Partial<AppSettings> | null,
   );
 }
 
@@ -141,19 +129,13 @@ function commitSettings(next: AppSettings): AppSettings {
   return { ...settingsCache };
 }
 
-/** Sync read from memory cache (call after hydrateDb). */
 export function loadSettings(): AppSettings {
   return { ...settingsCache };
 }
 
-/**
- * Persist settings. Before DB is ready, queues the save and applies it after
- * hydrate on top of IDB (never writes SSR defaults over stored secrets alone).
- */
 export function saveSettings(settings: AppSettings) {
   const normalized = normalizeSettings(settings);
   if (!isDbHydrated()) {
-    // Queue only — do not mark IDB cache dirty with SSR defaults.
     pendingSave = normalized;
     settingsCache = normalized;
     void whenDbReady().then(() => {
@@ -165,11 +147,6 @@ export function saveSettings(settings: AppSettings) {
   return commitSettings(normalized);
 }
 
-/**
- * Patch settings against the module cache (source of truth), never against a
- * possibly-stale React props snapshot. Prevents rapid field edits from
- * resurrecting an older submitMode / locale / etc.
- */
 export function patchSettings(patch: Partial<AppSettings>): AppSettings {
   return saveSettings({ ...loadSettings(), ...patch });
 }
@@ -180,19 +157,15 @@ async function flushPendingSettings() {
   pendingSave = null;
   await hydrateDb();
   const fromDb = normalizeSettings(
-    getCachedSettingsRaw() as Partial<AppSettings> | null
+    getCachedSettingsRaw() as Partial<AppSettings> | null,
   );
   const merged = mergePreHydrateSettings(fromDb, pending);
   commitSettings(merged);
 }
 
-/**
- * Pre-hydrate UI may hold SSR defaults. Keep non-empty secrets from DB when
- * pending left them blank; otherwise prefer pending (user intent).
- */
 export function mergePreHydrateSettings(
   fromDb: AppSettings,
-  pending: AppSettings
+  pending: AppSettings,
 ): AppSettings {
   return {
     ...fromDb,
@@ -201,7 +174,6 @@ export function mergePreHydrateSettings(
   };
 }
 
-/** Ensure DB is hydrated and settings cache is warm. */
 export async function hydrateSettings(): Promise<AppSettings> {
   await hydrateDb();
   if (pendingSave) {

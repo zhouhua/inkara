@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { t, type Locale } from "@/lib/i18n";
 import type { SkuId } from "@/lib/billing/catalog";
 
@@ -11,6 +11,8 @@ type BillingMe = {
   subscription?: { active: boolean; cancelAtPeriodEnd?: boolean };
   usage?: number;
 };
+
+type PayChannel = "alipay" | "wechat" | "mock";
 
 type Props = {
   open: boolean;
@@ -37,12 +39,22 @@ const SKUS: {
   { id: "pack_500", price: "¥59", labelKey: "billingSku_pack_500" },
 ];
 
+const ALLOW_MOCK =
+  typeof process !== "undefined" &&
+  process.env.NEXT_PUBLIC_PAY_ALLOW_MOCK === "1";
+
 export function BillingDialog({ open, locale, onClose }: Props) {
   const titleId = useId();
   const [me, setMe] = useState<BillingMe | null>(null);
   const [loading, setLoading] = useState(false);
   const [busySku, setBusySku] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [channel, setChannel] = useState<PayChannel>("alipay");
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+  const payBaselineRef = useRef<{ purchased: number; subActive: boolean } | null>(
+    null,
+  );
 
   const refreshMe = useCallback(async () => {
     await fetch("/api/billing/anon", { method: "POST" });
@@ -57,6 +69,8 @@ export function BillingDialog({ open, locale, onClose }: Props) {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setQrCodeUrl(null);
+    setPendingOrderId(null);
     void (async () => {
       try {
         const data = await refreshMe();
@@ -72,7 +86,7 @@ export function BillingDialog({ open, locale, onClose }: Props) {
     };
   }, [open, refreshMe]);
 
-  // After mock/xunhu return (?billing=return), poll briefly for balance.
+  // After Alipay return (?billing=return), poll briefly for balance.
   useEffect(() => {
     if (!open) return;
     if (typeof window === "undefined") return;
@@ -87,25 +101,69 @@ export function BillingDialog({ open, locale, onClose }: Props) {
     return () => window.clearInterval(id);
   }, [open, refreshMe]);
 
+  // Poll while WeChat QR is showing.
+  useEffect(() => {
+    if (!open || !pendingOrderId || !qrCodeUrl) return;
+    let n = 0;
+    const id = window.setInterval(() => {
+      n += 1;
+      void (async () => {
+        const data = await refreshMe();
+        const baseline = payBaselineRef.current;
+        if (!baseline) return;
+        const purchased = data.credits?.purchased ?? 0;
+        const active = data.subscription?.active ?? false;
+        if (
+          purchased > baseline.purchased ||
+          (active && !baseline.subActive)
+        ) {
+          setQrCodeUrl(null);
+          setPendingOrderId(null);
+          payBaselineRef.current = null;
+        }
+      })();
+      if (n >= 40) window.clearInterval(id);
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [open, pendingOrderId, qrCodeUrl, refreshMe]);
+
   const onBuy = async (sku: SkuId) => {
     setError(null);
     setBusySku(sku);
+    setQrCodeUrl(null);
+    setPendingOrderId(null);
     try {
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sku }),
+        body: JSON.stringify({ sku, channel }),
       });
       const data = (await res.json()) as {
         error?: string;
         message?: string;
-        payUrl?: string;
+        mode?: string;
+        payUrl?: string | null;
+        codeUrl?: string | null;
+        orderId?: string;
       };
-      if (!res.ok || !data.payUrl) {
+      if (!res.ok) {
         setError(data.message ?? data.error ?? t(locale, "billingCheckoutFailed"));
         return;
       }
-      window.location.href = data.payUrl;
+      if (data.mode === "qrcode" && data.codeUrl) {
+        payBaselineRef.current = {
+          purchased: me?.credits?.purchased ?? 0,
+          subActive: me?.subscription?.active ?? false,
+        };
+        setQrCodeUrl(data.codeUrl);
+        setPendingOrderId(data.orderId ?? null);
+        return;
+      }
+      if (data.payUrl) {
+        window.location.href = data.payUrl;
+        return;
+      }
+      setError(t(locale, "billingCheckoutFailed"));
     } catch {
       setError(t(locale, "billingCheckoutFailed"));
     } finally {
@@ -178,26 +236,85 @@ export function BillingDialog({ open, locale, onClose }: Props) {
           </a>
         ) : null}
 
-        {error ? <p className="billing-error">{error}</p> : null}
-
-        <ul className="billing-sku-list">
-          {SKUS.map((sku) => (
-            <li key={sku.id} className="billing-sku-row">
-              <span>{t(locale, sku.labelKey)}</span>
-              <span className="billing-sku-price">{sku.price}</span>
+        {loggedIn ? (
+          <div className="billing-channels" role="radiogroup" aria-label={t(locale, "billingPayChannel")}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={channel === "alipay"}
+              className={`billing-channel${channel === "alipay" ? " is-active" : ""}`}
+              onClick={() => setChannel("alipay")}
+            >
+              {t(locale, "billingChannelAlipay")}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={channel === "wechat"}
+              className={`billing-channel${channel === "wechat" ? " is-active" : ""}`}
+              onClick={() => setChannel("wechat")}
+            >
+              {t(locale, "billingChannelWechat")}
+            </button>
+            {ALLOW_MOCK ? (
               <button
                 type="button"
-                className="text-action"
-                disabled={!loggedIn || busySku === sku.id}
-                onClick={() => void onBuy(sku.id)}
+                role="radio"
+                aria-checked={channel === "mock"}
+                className={`billing-channel${channel === "mock" ? " is-active" : ""}`}
+                onClick={() => setChannel("mock")}
               >
-                {busySku === sku.id
-                  ? t(locale, "billingLoading")
-                  : t(locale, "billingBuy")}
+                {t(locale, "billingChannelMock")}
               </button>
-            </li>
-          ))}
-        </ul>
+            ) : null}
+          </div>
+        ) : null}
+
+        {error ? <p className="billing-error">{error}</p> : null}
+
+        {qrCodeUrl ? (
+          <div className="billing-qr">
+            <p className="billing-status">{t(locale, "billingScanWechat")}</p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              className="billing-qr-img"
+              alt=""
+              width={200}
+              height={200}
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrCodeUrl)}`}
+            />
+            <p className="billing-status">{t(locale, "billingWaitingPay")}</p>
+            <button
+              type="button"
+              className="text-action"
+              onClick={() => {
+                setQrCodeUrl(null);
+                setPendingOrderId(null);
+              }}
+            >
+              {t(locale, "close")}
+            </button>
+          </div>
+        ) : (
+          <ul className="billing-sku-list">
+            {SKUS.map((sku) => (
+              <li key={sku.id} className="billing-sku-row">
+                <span>{t(locale, sku.labelKey)}</span>
+                <span className="billing-sku-price">{sku.price}</span>
+                <button
+                  type="button"
+                  className="text-action"
+                  disabled={!loggedIn || busySku === sku.id}
+                  onClick={() => void onBuy(sku.id)}
+                >
+                  {busySku === sku.id
+                    ? t(locale, "billingLoading")
+                    : t(locale, "billingBuy")}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
 
         {loggedIn && me?.subscription?.active && !me.subscription.cancelAtPeriodEnd ? (
           <button

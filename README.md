@@ -56,30 +56,34 @@ E2E 会设置 `SKIP_OPENNEXT_CLOUDFLARE_DEV=1`，跳过 `next.config.ts` 里较�
 | `AUTH_EMAIL_FROM` | 发信地址 | `onboarding@resend.dev` |
 | `AUTH_TRUST_HOST` | 反代后信任 Host（Workers 建议 `true`） | Auth.js 内已 `trustHost: true` |
 | `NEXT_PUBLIC_APP_URL` | 站点绝对 URL（支付回调/回跳） | 请求 Origin |
-| `PAY_PROVIDER` | `mock`（默认本地）或 `xunhupay`（虎皮椒） | `mock` |
+| `WECHAT_PAY_APP_ID` / `MCH_ID` / `SERIAL` / `PRIVATE_KEY` / `API_V3_KEY` | 微信商户 APIv3 Native | — |
+| `WECHAT_PAY_PLATFORM_PUBLIC_KEY` | 微信平台公钥（验签，建议生产配置） | — |
+| `ALIPAY_APP_ID` / `PRIVATE_KEY` / `PUBLIC_KEY` | 支付宝开放平台应用 | — |
+| `ALIPAY_GATEWAY` | 支付宝网关 | 正式网关 |
+| `PAY_ALLOW_MOCK` / `NEXT_PUBLIC_PAY_ALLOW_MOCK` | 允许 `channel=mock`（本地） | 开发环境默认可 mock |
 | `PAY_MOCK_SECRET` | mock 支付校验串 | `inkara-mock-pay` |
-| `PAY_XH_APPID` / `PAY_XH_APPSECRET` | 虎皮椒商户 | — |
-| `PAY_XH_GATEWAY` | 虎皮椒下单网关 | 官方默认 |
 
-**计费 / 登录：** D1 绑定名 `DB`（库 `inkara-billing`，见 `wrangler.jsonc`）。本地迁移：
+**计费 / 登录 / 内容：** D1 绑定名 `DB`（库 `inkara`，见 `wrangler.jsonc`）。本地迁移：
 
 ```bash
-npx wrangler d1 migrations apply inkara-billing --local
+npx wrangler d1 migrations apply inkara --local
 # 生产：
-npx wrangler d1 migrations apply inkara-billing --remote
+npx wrangler d1 migrations apply inkara --remote
 ```
 
 邮箱魔法链接：打开 `/api/auth/signin`，提交邮箱后看终端日志中的 `[inkara:auth] Magic link`；生产配置 `AUTH_RESEND_KEY` 后才会真发信。登录用户写入 D1 `users` 表。
 
-**支付（Phase C）：**
+**支付（官方直连，无聚合）：**
 
-- 默认 `PAY_PROVIDER=mock`：登录后点购买 → `/api/billing/mock-pay` 直接入账并回跳（仅开发）。
-- 生产设 `PAY_PROVIDER=xunhupay`，配置虎皮椒密钥；异步通知 URL：`{NEXT_PUBLIC_APP_URL}/api/billing/webhook`（需公网可达）。
-- 手动对账：按日导出 D1 `orders`（`status` / `sku` / `amount_fen` / `provider_trade_no`），与聚合商后台流水核对；重复 webhook 由 `fulfillOrder` 幂等消化。
+- **支付宝**：电脑网站支付；异步通知 `{NEXT_PUBLIC_APP_URL}/api/billing/webhook/alipay`。
+- **微信**：Native 扫码；异步通知 `{NEXT_PUBLIC_APP_URL}/api/billing/webhook/wechat`。
+- **本地**：`channel=mock`（开发默认可用，或设 `PAY_ALLOW_MOCK=1`）→ `/api/billing/mock-pay` 直接入账。
+- 下单时用户在对话框选择渠道；订单表 `orders.channel` 记录渠道。
+- 手动对账：按日导出 D1 `orders`（`status` / `sku` / `amount_fen` / `channel` / `provider_trade_no`），与微信/支付宝商户后台流水核对；重复 webhook 由 `fulfillOrder` 幂等消化。
 
 正式构建下由平台 `MODEL_*` 提供模型；匿名用户每天 2 次日免积分（服务端 D1）。额度用尽后登录购买会员或积分包。
 
-用户设定与历史仍在浏览器 IndexedDB；计费账本在服务端 D1。
+**用户数据（无 IndexedDB）：** 设定、日记页存 D1（`user_settings` / `pages`）。向量存 **Cloudflare Vectorize** 索引 `inkara-pages`（1024 维，cosine；namespace = subject）。embedding 由 Workers AI `@cf/baai/bge-m3` 生成；召回 `POST /api/recall` = 词法 ∪ Vectorize ANN。匿名用 `inkara_anon`；登录合并时页与向量一并迁入账号。启动时若检测到旧 IndexedDB，会一次性上传后删除本地库。
 
 请使用支持识图的视觉模型。
 
@@ -151,8 +155,8 @@ GitHub Actions 有独立 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)�
 
 ## 技术要点
 
-- 前端：Canvas 笔迹、手写体浮现、SSE 流式、PWA shell、IndexedDB 本地数据
-- 后端：`POST /api/ask` 将页面 PNG 发给视觉模型（支持用户 BYOK），SSE 推送 `delta` / `meta` / `done`（含 `intent` / `recallQuery`）
+- 前端：Canvas 笔迹、手写体浮现、SSE 流式、PWA shell；设定/日记/向量同步至 D1
+- 后端：`POST /api/ask` 将页面 PNG 发给平台视觉模型，SSE 推送 `delta` / `meta` / `done`（含 `intent` / `recallQuery`）；Workers AI 生成 embedding
 
 ## License
 

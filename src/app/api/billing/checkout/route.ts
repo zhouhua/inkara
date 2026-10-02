@@ -1,7 +1,11 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { auth } from "@/lib/auth";
 import { CATALOG, isSkuId } from "@/lib/billing/catalog";
-import { getPaymentProvider } from "@/lib/billing/providers";
+import {
+  getPaymentProvider,
+  isPaymentChannel,
+} from "@/lib/billing/providers";
+import type { PaymentChannel } from "@/lib/billing/providers/types";
 import type { D1Database } from "@/lib/db-server";
 
 export const runtime = "nodejs";
@@ -32,9 +36,9 @@ export async function POST(req: Request) {
     return Response.json({ error: "billing_unavailable" }, { status: 503 });
   }
 
-  let body: { sku?: string };
+  let body: { sku?: string; channel?: string };
   try {
-    body = (await req.json()) as { sku?: string };
+    body = (await req.json()) as { sku?: string; channel?: string };
   } catch {
     return Response.json({ error: "invalid_json" }, { status: 400 });
   }
@@ -44,24 +48,31 @@ export async function POST(req: Request) {
     return Response.json({ error: "invalid_sku" }, { status: 400 });
   }
 
+  const channelRaw = typeof body.channel === "string" ? body.channel : "alipay";
+  if (!isPaymentChannel(channelRaw)) {
+    return Response.json({ error: "invalid_channel" }, { status: 400 });
+  }
+  const channel: PaymentChannel = channelRaw;
+
   const item = CATALOG[sku];
   const orderId = `ord_${crypto.randomUUID()}`;
   const userId = session.user.id;
 
   await db
     .prepare(
-      `INSERT INTO orders (id, user_id, sku, amount_fen, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'pending', datetime('now'), datetime('now'))`,
+      `INSERT INTO orders
+         (id, user_id, sku, amount_fen, status, channel, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'pending', ?, datetime('now'), datetime('now'))`,
     )
-    .bind(orderId, userId, sku, item.priceFen)
+    .bind(orderId, userId, sku, item.priceFen, channel)
     .run();
 
   const origin = appOrigin(req);
-  const notifyUrl = `${origin}/api/billing/webhook`;
-  const returnUrl = `${origin}/?billing=return`;
+  const notifyUrl = `${origin}/api/billing/webhook/${channel}`;
+  const returnUrl = `${origin}/?billing=return&channel=${channel}`;
 
   try {
-    const provider = getPaymentProvider();
+    const provider = getPaymentProvider(channel);
     const title =
       item.kind === "pack"
         ? `墨语积分包 ${"credits" in item ? item.credits : ""}`
@@ -86,10 +97,13 @@ export async function POST(req: Request) {
 
     return Response.json({
       orderId,
-      payUrl: payment.payUrl,
+      channel,
+      provider: provider.id,
+      mode: payment.mode ?? (payment.codeUrl ? "qrcode" : "redirect"),
+      payUrl: payment.payUrl ?? null,
+      codeUrl: payment.codeUrl ?? null,
       amountFen: item.priceFen,
       sku,
-      provider: provider.id,
     });
   } catch (err) {
     await db

@@ -14,6 +14,7 @@ describe("mock payment provider", () => {
       returnUrl: "https://inkara.example/?billing=return",
     });
     expect(created.payUrl).toContain("/api/billing/mock-pay?orderId=ord_1");
+    expect(created.mode).toBe("redirect");
 
     const raw = JSON.stringify({
       orderId: "ord_1",
@@ -21,7 +22,7 @@ describe("mock payment provider", () => {
       secret: "inkara-mock-pay",
     });
     const parsed = await provider.verifyAndParseWebhook(
-      new Request("https://inkara.example/api/billing/webhook"),
+      new Request("https://inkara.example/api/billing/webhook/mock"),
       raw,
     );
     expect(parsed).toMatchObject({ ok: true, orderId: "ord_1", paid: true });

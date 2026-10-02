@@ -8,7 +8,9 @@ import {
 } from "@/lib/billing/ledger";
 import { createD1BillingStore } from "@/lib/billing/d1-store";
 import { mergeAnonDailyGrants } from "@/lib/billing/merge-anon";
+import { mergeAnonContent } from "@/lib/content/merge-anon";
 import type { D1Database } from "@/lib/db-server";
+import { readAnonSubject } from "@/lib/subject";
 
 export const runtime = "nodejs";
 
@@ -19,12 +21,6 @@ async function resolveDb(): Promise<D1Database | null> {
   } catch {
     return null;
   }
-}
-
-function readAnon(req: Request): string | null {
-  const cookie = req.headers.get("cookie") ?? "";
-  const match = cookie.match(/(?:^|;\s*)inkara_anon=([^;]+)/);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
 export async function GET(req: Request) {
@@ -39,7 +35,7 @@ export async function GET(req: Request) {
   const store = createD1BillingStore(db);
   const session = await auth();
   const now = new Date();
-  const anon = readAnon(req);
+  const anon = readAnonSubject(req);
 
   if (session?.user?.id) {
     if (anon) {
@@ -50,6 +46,7 @@ export async function GET(req: Request) {
         shanghaiDate(now),
         shanghaiDayEndIso(now),
       );
+      await mergeAnonContent(db, anon, session.user.id);
     }
     await ensureDailyGrant(store, session.user.id, now);
     const balance = await getBalance(store, session.user.id, now);

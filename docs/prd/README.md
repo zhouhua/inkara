@@ -20,7 +20,7 @@
 |----|------|------|
 | A | [billing-auth-ledger](../superpowers/plans/2026-09-30-billing-auth-ledger.md) | Auth + D1 账本 + `/api/billing/me` |
 | B | [billing-metering-ux](../superpowers/plans/2026-09-30-billing-metering-ux.md) | ask 闸门 + 去 BYOK + BillingDialog |
-| C | [billing-payments](../superpowers/plans/2026-09-30-billing-payments.md) | 聚合支付 + 入账 |
+| C | [billing-payments](../superpowers/plans/2026-09-30-billing-payments.md) | 官方微信/支付宝 + 入账 |
 
 **设计定稿：** [commercial-billing-design](../superpowers/specs/2026-09-30-commercial-billing-design.md)
 

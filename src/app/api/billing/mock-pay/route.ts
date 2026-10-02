@@ -14,12 +14,18 @@ async function resolveDb(): Promise<D1Database | null> {
   }
 }
 
+function mockAllowed(): boolean {
+  return (
+    process.env.PAY_ALLOW_MOCK === "1" ||
+    process.env.NODE_ENV === "development"
+  );
+}
+
 /**
  * Dev helper: open payUrl from mock provider → fulfill order → redirect home.
- * Only active when PAY_PROVIDER is mock (default).
  */
 export async function GET(req: Request) {
-  if ((process.env.PAY_PROVIDER ?? "mock").toLowerCase() !== "mock") {
+  if (!mockAllowed()) {
     return new Response("not_found", { status: 404 });
   }
 
@@ -42,7 +48,6 @@ export async function GET(req: Request) {
     secret,
   });
 
-  // Inline fulfill (same as webhook) so local mock doesn't need a second hop.
   const store = createD1FulfillStore(db);
   await fulfillOrder(store, orderId, {
     providerTradeNo: `mock_${orderId}`,

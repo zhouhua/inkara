@@ -8,13 +8,11 @@ import {
 } from "@/lib/billing/ledger";
 import { createD1BillingStore } from "@/lib/billing/d1-store";
 import { mergeAnonDailyGrants } from "@/lib/billing/merge-anon";
+import { mergeAnonContent } from "@/lib/content/merge-anon";
 import type { D1Database } from "@/lib/db-server";
+import { readAnonSubject } from "@/lib/subject";
 
-export function readAnonSubject(req: Request): string | null {
-  const cookie = req.headers.get("cookie") ?? "";
-  const match = cookie.match(/(?:^|;\s*)inkara_anon=([^;]+)/);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
-}
+export { readAnonSubject };
 
 async function resolveDb(): Promise<D1Database | null> {
   try {
@@ -31,7 +29,7 @@ export type BillingGateResult =
 
 /**
  * Resolve billed subject and consume one ask credit.
- * Logged-in users merge anon daily grants first.
+ * Logged-in users merge anon daily grants + content first.
  */
 export async function gateAskConsume(req: Request): Promise<BillingGateResult> {
   const db = await resolveDb();
@@ -58,6 +56,7 @@ export async function gateAskConsume(req: Request): Promise<BillingGateResult> {
       shanghaiDate(now),
       shanghaiDayEndIso(now),
     );
+    await mergeAnonContent(db, anon, subjectId);
   }
   if (!subjectId) {
     subjectId = anon;

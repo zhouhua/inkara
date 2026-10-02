@@ -53,6 +53,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# wrangler types output is huge; regenerate with `npm run cf-typegen`
+cloudflare-env.d.ts
 
 # git worktrees (local)
 .worktrees/

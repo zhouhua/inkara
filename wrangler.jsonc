@@ -21,11 +21,20 @@
       "service": "inkara"
     }
   ],
+  "ai": {
+    "binding": "AI"
+  },
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "inkara-pages"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "inkara-billing",
-      "database_id": "c8479ec1-2a05-4d31-a137-6a91d12dd693",
+      "database_name": "inkara",
+      "database_id": "5f474352-ef4c-4add-a60e-7d2ac5202416",
       "migrations_dir": "migrations"
     }
   ]

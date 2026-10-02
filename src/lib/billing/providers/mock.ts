@@ -20,7 +20,11 @@ export function createMockPaymentProvider(opts?: {
     async createPayment(input: CreatePaymentInput): Promise<CreatePaymentResult> {
       const origin = baseUrl || new URL(input.returnUrl).origin;
       const payUrl = `${origin}/api/billing/mock-pay?orderId=${encodeURIComponent(input.orderId)}&returnUrl=${encodeURIComponent(input.returnUrl)}`;
-      return { payUrl, providerTradeNo: `mock_${input.orderId}` };
+      return {
+        mode: "redirect",
+        payUrl,
+        providerTradeNo: `mock_${input.orderId}`,
+      };
     },
 
     async verifyAndParseWebhook(
