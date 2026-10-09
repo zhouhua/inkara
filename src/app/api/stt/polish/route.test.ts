@@ -14,6 +14,7 @@ vi.mock("@/lib/llm", () => ({
 }));
 
 import { POST } from "@/app/api/stt/polish/route";
+import { buildSttPolishSystemPrompt } from "@/lib/stt-polish";
 
 const resolveLlmCredentialsMock = vi.mocked(resolveLlmCredentials);
 
@@ -75,6 +76,7 @@ describe("POST /api/stt/polish", () => {
     expect(res.status).toBe(503);
     await expect(res.json()).resolves.toMatchObject({
       error: "missing_api_key",
+      message: "MODEL_API_KEY is not configured",
     });
     expect(generateText).not.toHaveBeenCalled();
   });
@@ -89,9 +91,26 @@ describe("POST /api/stt/polish", () => {
     expect(resolveLlmCredentialsMock).toHaveBeenCalledWith({});
     expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
+        system: buildSttPolishSystemPrompt("zh"),
         prompt: "嗯那个你好",
         maxOutputTokens: 1024,
-      })
+      }),
     );
+  });
+
+  it("returns 502 empty_polish when model output is blank", async () => {
+    generateText.mockResolvedValue({ text: "   " });
+
+    const res = await POST(jsonRequest({ text: "你好" }));
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({ error: "empty_polish" });
+  });
+
+  it("returns 502 polish_failed when generateText rejects", async () => {
+    generateText.mockRejectedValue(new Error("upstream"));
+
+    const res = await POST(jsonRequest({ text: "你好" }));
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toMatchObject({ error: "polish_failed" });
   });
 });

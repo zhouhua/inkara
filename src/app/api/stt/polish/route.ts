@@ -23,7 +23,10 @@ export async function POST(req: Request) {
   const locale = body.locale === "en" ? "en" : "zh";
   const resolved = resolveLlmCredentials({});
   if (!resolved.ok) {
-    return Response.json({ error: resolved.error }, { status: 503 });
+    return Response.json(
+      { error: resolved.error, message: resolved.message },
+      { status: 503 },
+    );
   }
   try {
     const result = await generateText({
