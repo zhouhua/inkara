@@ -1,0 +1,14 @@
+name = "inkara-stt-proxy"
+main = "src/index.ts"
+compatibility_date = "2026-10-02"
+
+# Local secrets: workers/stt-proxy/.dev.vars
+#   DASHSCOPE_API_KEY=
+#   STT_TICKET_SECRET=   # or AUTH_SECRET; must match the Next app
+#
+# Production:
+#   npx wrangler secret put DASHSCOPE_API_KEY
+#   npx wrangler secret put STT_TICKET_SECRET
+
+[dev]
+port = 8787

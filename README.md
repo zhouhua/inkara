@@ -87,6 +87,29 @@ npx wrangler d1 migrations apply inkara --remote
 
 请使用支持识图的视觉模型。
 
+### 语音输入本地联调
+
+文字模式的麦克风不把 DashScope Key 交给浏览器。Next 签发 120 秒票据（`expMs.32hexHmac`），浏览器连到本机的 STT Worker，由 Worker 转发到 Paraformer。
+
+```bash
+# workers/stt-proxy/.dev.vars（勿提交）
+# DASHSCOPE_API_KEY=sk-...
+# STT_TICKET_SECRET=   # 与 Next 的 STT_TICKET_SECRET 相同；未设时两边都用 AUTH_SECRET
+
+npm run stt-proxy
+# 等价：cd workers/stt-proxy && npx wrangler dev
+```
+
+Worker 监听 `ws://127.0.0.1:8787`。`.env.local` 里设置 `NEXT_PUBLIC_STT_WS_URL=ws://127.0.0.1:8787`，并保证票据密钥与 Worker 一致。该端口与 `npm run preview` 冲突，联调时只开其中一个。
+
+生产密钥：
+
+```bash
+cd workers/stt-proxy
+npx wrangler secret put DASHSCOPE_API_KEY
+npx wrangler secret put STT_TICKET_SECRET
+```
+
 ## 部署到 Cloudflare Workers
 
 本项目通过 [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare) 部署到 Cloudflare Workers。
