@@ -457,6 +457,41 @@ select {
   cursor: default;
 }
 
+.voice-mic-anchor {
+  position: absolute;
+  z-index: 6;
+  left: clamp(0.85rem, 2vw, 1.35rem);
+  top: calc(4.4rem + 1.35rem);
+  pointer-events: none;
+}
+
+.voice-mic {
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.voice-mic.is-listening {
+  color: var(--ink);
+  animation: voice-mic-pulse 2.2s linear infinite;
+}
+
+@keyframes voice-mic-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-mic.is-listening {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 .ink-link[aria-pressed="true"],
 .ink-link.active {
   color: var(--ink);

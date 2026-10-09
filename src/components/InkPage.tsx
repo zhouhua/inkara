@@ -27,6 +27,7 @@ import { DockHints } from "@/components/DockHints";
 import { RecallCiteLayer } from "@/components/RecallCiteLayer";
 import RubberSegment from "@/components/RubberSegment";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { VoiceMicButton } from "@/components/VoiceMicButton";
 import { askPageStream } from "@/lib/ask-stream";
 import {
   resolvePaperError,
@@ -81,6 +82,17 @@ import {
   type AppSettings,
   type InputMode,
 } from "@/lib/settings";
+import {
+  startSttSession,
+  VOICE_MAX_MS,
+  VOICE_WARN_MS,
+} from "@/lib/stt-client";
+import {
+  beginVoiceSession,
+  setVoiceSessionText,
+  voiceSessionFull,
+  type VoiceSession,
+} from "@/lib/voice-span";
 import { useMemoryStore } from "@/stores/memory-store";
 import {
   getPhase,
@@ -108,6 +120,9 @@ const REPLY_INK = "#2a3145";
 const DOUBLE_TAP_MS = 380;
 const DOUBLE_TAP_MAX_MOVE_CSS = 10;
 const DOUBLE_TAP_MAX_DURATION_MS = 250;
+const VOICE_NOTE_MS = 2800;
+
+type VoicePhase = "idle" | "listening" | "warn" | "polishing";
 
 const SSR_SETTINGS: AppSettings = { ...defaultSettings };
 
@@ -125,6 +140,15 @@ export function InkPage() {
   const applyingTypeHistoryRef = useRef(false);
   const [editHistory, setEditHistory] = useState({ undo: 0, redo: 0 });
   const typedTextRef = useRef("");
+  const voiceSessionRef = useRef<VoiceSession | null>(null);
+  const sttStopRef = useRef<null | (() => Promise<void>)>(null);
+  const warnTimerRef = useRef<number | null>(null);
+  const maxTimerRef = useRef<number | null>(null);
+  const voicePhaseRef = useRef<VoicePhase>("idle");
+  const voiceEpochRef = useRef(0);
+  const voiceStoppingRef = useRef(false);
+  const voiceUndoRef = useRef(false);
+  const voiceNoteTimerRef = useRef<number | null>(null);
   const dprRef = useRef(1);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const idleRafRef = useRef<number | null>(null);
@@ -153,6 +177,7 @@ export function InkPage() {
   const phase = useSessionStore((s) => s.phase);
   const inputMode = useSettingsStore((s) => s.settings.inputMode);
   const [typedText, setTypedText] = useState("");
+  const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle");
   const [readAsText, setReadAsText] = useState<string | null>(null);
   const [readAsTopPx, setReadAsTopPx] = useState<number | null>(null);
   const readAsTextRef = useRef<string | null>(null);
@@ -228,6 +253,21 @@ export function InkPage() {
   useEffect(() => {
     typedTextRef.current = typedText;
   }, [typedText]);
+
+  useEffect(() => {
+    return () => {
+      if (warnTimerRef.current != null) {
+        window.clearTimeout(warnTimerRef.current);
+      }
+      if (maxTimerRef.current != null) {
+        window.clearTimeout(maxTimerRef.current);
+      }
+      if (voiceNoteTimerRef.current != null) {
+        window.clearTimeout(voiceNoteTimerRef.current);
+      }
+      void sttStopRef.current?.();
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = settings.locale === "zh" ? "zh-CN" : "en";
@@ -1192,6 +1232,7 @@ export function InkPage() {
 
   const commitPage = useCallback(async () => {
     if (awaitingContinue) return;
+    if (voicePhaseRef.current !== "idle") return;
     if (!dbReadyRef.current) {
       await whenDbReady();
       await hydrateMemoryStore();
@@ -1672,6 +1713,7 @@ export function InkPage() {
     }
 
     if (e.key !== "Enter" || e.shiftKey) return;
+    if (voicePhaseRef.current !== "idle") return;
     if (
       getPhase() !== "writing" &&
       getPhase() !== "ready"
@@ -1685,6 +1727,7 @@ export function InkPage() {
   };
 
   const switchMode = (mode: InputMode) => {
+    if (voicePhaseRef.current !== "idle") return;
     if (
       getPhase() === "thinking" ||
       getPhase() === "answering" ||
@@ -1721,6 +1764,7 @@ export function InkPage() {
   };
 
   const clearInputOnly = useCallback(() => {
+    if (voicePhaseRef.current !== "idle") return;
     clearIdle();
     animSignalRef.current.cancelled = true;
     animSignalRef.current = { cancelled: true };
@@ -1806,6 +1850,194 @@ export function InkPage() {
     phase === "recalling";
 
   const inputLocked = busy || phase === "error";
+  const voiceBusy = voicePhase !== "idle";
+
+  function clearVoiceTimers() {
+    if (warnTimerRef.current != null) {
+      window.clearTimeout(warnTimerRef.current);
+      warnTimerRef.current = null;
+    }
+    if (maxTimerRef.current != null) {
+      window.clearTimeout(maxTimerRef.current);
+      maxTimerRef.current = null;
+    }
+  }
+
+  function showVoiceStatus(
+    key: "voiceNeedMic" | "voiceFailed" | "voicePolishFailed",
+    brief = false
+  ) {
+    const text = t(settingsRef.current.locale, key);
+    setStatusExtra(text);
+    if (voiceNoteTimerRef.current != null) {
+      window.clearTimeout(voiceNoteTimerRef.current);
+      voiceNoteTimerRef.current = null;
+    }
+    if (!brief) return;
+    voiceNoteTimerRef.current = window.setTimeout(() => {
+      voiceNoteTimerRef.current = null;
+      setStatusExtra((current) => (current === text ? null : current));
+    }, VOICE_NOTE_MS);
+  }
+
+  function publishVoiceText(session: VoiceSession) {
+    const full = voiceSessionFull(session);
+    if (!voiceUndoRef.current && full !== typedTextRef.current) {
+      typeUndoRef.current = [...typeUndoRef.current, typedTextRef.current].slice(
+        -80
+      );
+      typeRedoRef.current = [];
+      voiceUndoRef.current = true;
+    }
+    applyingTypeHistoryRef.current = true;
+    onTypedChange(full);
+    applyingTypeHistoryRef.current = false;
+    clearIdle();
+    const caret = session.prefix.length + session.text.length;
+    requestAnimationFrame(() => {
+      const ta = typeRef.current;
+      if (!ta) return;
+      ta.setSelectionRange(caret, caret);
+    });
+  }
+
+  function finishVoiceIdle() {
+    voicePhaseRef.current = "idle";
+    setVoicePhase("idle");
+    voiceSessionRef.current = null;
+    voiceUndoRef.current = false;
+    voiceStoppingRef.current = false;
+    if (
+      (getPhase() === "writing" || getPhase() === "ready") &&
+      typedTextRef.current.trim()
+    ) {
+      scheduleIdle();
+    }
+  }
+
+  async function stopVoice(doPolish: boolean) {
+    if (voicePhaseRef.current === "idle") return;
+    if (voiceStoppingRef.current) return;
+    voiceStoppingRef.current = true;
+    const epoch = ++voiceEpochRef.current;
+    clearVoiceTimers();
+    const stop = sttStopRef.current;
+    sttStopRef.current = null;
+    if (stop) {
+      try {
+        await stop();
+      } catch {
+        /* mic already stopped */
+      }
+    }
+    if (voiceEpochRef.current !== epoch) {
+      voiceStoppingRef.current = false;
+      return;
+    }
+    const vs = voiceSessionRef.current;
+    if (!vs || !doPolish || !vs.text.trim()) {
+      finishVoiceIdle();
+      return;
+    }
+    voicePhaseRef.current = "polishing";
+    setVoicePhase("polishing");
+    try {
+      const res = await fetch("/api/stt/polish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: vs.text,
+          locale: settingsRef.current.locale,
+        }),
+      });
+      if (voiceEpochRef.current !== epoch) return;
+      if (res.ok) {
+        const data = (await res.json()) as { text?: string };
+        if (data.text) {
+          const next = setVoiceSessionText(vs, data.text);
+          voiceSessionRef.current = next;
+          publishVoiceText(next);
+        }
+      } else {
+        showVoiceStatus("voicePolishFailed", true);
+      }
+    } catch {
+      if (voiceEpochRef.current === epoch) {
+        showVoiceStatus("voicePolishFailed", true);
+      }
+    } finally {
+      if (voiceEpochRef.current === epoch) {
+        finishVoiceIdle();
+      } else {
+        voiceStoppingRef.current = false;
+      }
+    }
+  }
+
+  async function startVoice() {
+    if (inputMode !== "type" || inputLocked || awaitingContinue) return;
+    if (voicePhaseRef.current !== "idle" || voiceStoppingRef.current) return;
+    const epoch = ++voiceEpochRef.current;
+    const full = typedTextRef.current;
+    const ta = typeRef.current;
+    const caret = ta ? ta.selectionStart : full.length;
+    voiceUndoRef.current = false;
+    voiceSessionRef.current = beginVoiceSession(full, caret);
+    voicePhaseRef.current = "listening";
+    setVoicePhase("listening");
+    if (voiceNoteTimerRef.current != null) {
+      window.clearTimeout(voiceNoteTimerRef.current);
+      voiceNoteTimerRef.current = null;
+    }
+    setStatusExtra(null);
+    clearIdle();
+    clearVoiceTimers();
+    warnTimerRef.current = window.setTimeout(() => {
+      if (voiceEpochRef.current !== epoch) return;
+      if (voicePhaseRef.current !== "listening") return;
+      voicePhaseRef.current = "warn";
+      setVoicePhase("warn");
+    }, VOICE_WARN_MS);
+    maxTimerRef.current = window.setTimeout(() => {
+      if (voiceEpochRef.current !== epoch) return;
+      void stopVoice(true);
+    }, VOICE_MAX_MS);
+    try {
+      const session = await startSttSession({
+        onPartial: (text) => {
+          if (voiceEpochRef.current !== epoch) return;
+          const vs = voiceSessionRef.current;
+          if (!vs) return;
+          const next = setVoiceSessionText(vs, text);
+          voiceSessionRef.current = next;
+          publishVoiceText(next);
+        },
+        onError: () => {
+          if (voiceEpochRef.current !== epoch) return;
+          showVoiceStatus("voiceFailed");
+          void stopVoice(false);
+        },
+      });
+      if (voiceEpochRef.current !== epoch) {
+        await session.stop();
+        return;
+      }
+      sttStopRef.current = session.stop;
+    } catch (err) {
+      const denied = err instanceof Error && err.message === "mic_denied";
+      if (voiceEpochRef.current !== epoch) {
+        if (denied) showVoiceStatus("voiceNeedMic");
+        return;
+      }
+      clearVoiceTimers();
+      showVoiceStatus(denied ? "voiceNeedMic" : "voiceFailed");
+      voiceSessionRef.current = null;
+      voiceUndoRef.current = false;
+      voicePhaseRef.current = "idle";
+      setVoicePhase("idle");
+      voiceStoppingRef.current = false;
+    }
+  }
 
   const showSessionDock =
     !busy &&
@@ -1822,6 +2054,7 @@ export function InkPage() {
   const onPaperDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (
       inputLocked ||
+      voicePhaseRef.current !== "idle" ||
       settingsOpen ||
       helpOpen ||
       historyOpen ||
@@ -1868,6 +2101,7 @@ export function InkPage() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (settingsOpen || helpOpen || historyOpen) return;
+      if (voicePhaseRef.current !== "idle") return;
 
       const mod = e.metaKey || e.ctrlKey;
       if (mod && (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")) {
@@ -1950,6 +2184,7 @@ export function InkPage() {
     contentPresent,
     idleArmed,
     manualSubmitHint,
+    voicePhase,
   });
 
   const ringProgress = showIdleRing && idleArmed ? idleProgress : 0;
@@ -2071,6 +2306,7 @@ export function InkPage() {
         onKeyDown={onTypeKeyDown}
         disabled={
           inputLocked ||
+          voiceBusy ||
           inputMode !== "type" ||
           awaitingContinue
         }
@@ -2084,6 +2320,35 @@ export function InkPage() {
             : {}),
         }}
       />
+
+      {inputMode === "type" && !settingsOpen && !helpOpen ? (
+        <div
+          className="voice-mic-anchor"
+          style={
+            writingTopPx != null
+              ? ({ top: writingTopPx } as CSSProperties)
+              : undefined
+          }
+        >
+          <VoiceMicButton
+            locale={settings.locale}
+            disabled={inputLocked || awaitingContinue}
+            phase={
+              voicePhase === "polishing"
+                ? "polishing"
+                : voicePhase === "idle"
+                  ? "idle"
+                  : "listening"
+            }
+            onPressStart={() => {
+              void startVoice();
+            }}
+            onPressEnd={() => {
+              void stopVoice(true);
+            }}
+          />
+        </div>
+      ) : null}
 
       <header className="paper-chrome">
         <BrandMark locale={settings.locale} />
@@ -2099,7 +2364,7 @@ export function InkPage() {
                 onClick={undoEdit}
                 aria-label={t(settings.locale, "undo")}
                 title={t(settings.locale, "undo")}
-                disabled={inputLocked || editHistory.undo === 0}
+                disabled={inputLocked || voiceBusy || editHistory.undo === 0}
               >
                 <Undo size={16} aria-hidden />
               </button>
@@ -2109,7 +2374,7 @@ export function InkPage() {
                 onClick={redoEdit}
                 aria-label={t(settings.locale, "redo")}
                 title={t(settings.locale, "redo")}
-                disabled={inputLocked || editHistory.redo === 0}
+                disabled={inputLocked || voiceBusy || editHistory.redo === 0}
               >
                 <Redo size={16} aria-hidden />
               </button>
@@ -2148,7 +2413,7 @@ export function InkPage() {
             speed={1}
             glide={70}
             draggable
-            disabled={inputLocked}
+            disabled={inputLocked || voiceBusy}
             trackColor="oklch(0.26 0.016 255 / 0.06)"
             thumbColor="oklch(0.985 0.003 100)"
             textColor="oklch(0.34 0.016 255 / 0.55)"
