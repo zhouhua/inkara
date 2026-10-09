@@ -164,6 +164,11 @@ function openSocket(url: string): Promise<WebSocket> {
   });
 }
 
+/**
+ * Starts a browser STT session (ticket + WebSocket + mic PCM stream).
+ * Throws on startup failures (ticket, socket open, mic permission).
+ * Mid-session faults are reported via `handlers.onError` without throwing.
+ */
 export async function startSttSession(
   handlers: SttClientHandlers,
 ): Promise<{ stop: () => Promise<void> }> {
@@ -184,12 +189,17 @@ export async function startSttSession(
     asr = accumulateAsr(asr, event);
     handlers.onPartial(asrDisplayText(asr));
   });
+  let mic: { stop: () => void } | null = null;
   ws.addEventListener("close", (ev) => {
     if (userStop || ev.code === 1000) return;
+    try {
+      mic?.stop();
+    } catch {
+      /* mic already stopped */
+    }
     handlers.onError(`ws_closed_${ev.code || 1006}`);
   });
 
-  let mic: { stop: () => void };
   try {
     mic = await createMicPcmStream((pcm) => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -212,7 +222,7 @@ export async function startSttSession(
         stopPromise = (async () => {
           userStop = true;
           try {
-            mic.stop();
+            mic!.stop();
           } catch {
             /* mic already stopped */
           }

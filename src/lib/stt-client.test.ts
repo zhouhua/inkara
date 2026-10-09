@@ -339,6 +339,7 @@ describe("startSttSession", () => {
     const onError = vi.fn();
     await startSttSession({ onPartial: vi.fn(), onError });
     sockets[0]!.close(1011, "task-failed");
+    expect(mic.stop).toHaveBeenCalledOnce();
     expect(onError).toHaveBeenCalledWith("ws_closed_1011");
   });
 
