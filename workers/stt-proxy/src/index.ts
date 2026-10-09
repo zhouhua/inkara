@@ -61,10 +61,36 @@ const worker = {
 
 export default worker;
 
+const MAX_CLOSE_REASON_BYTES = 123;
+
+function truncateCloseReason(reason: string): string {
+  if (!reason) return "";
+  const bytes = new TextEncoder().encode(reason);
+  if (bytes.byteLength <= MAX_CLOSE_REASON_BYTES) return reason;
+  let end = reason.length;
+  while (end > 0 && new TextEncoder().encode(reason.slice(0, end)).byteLength > MAX_CLOSE_REASON_BYTES) {
+    end -= 1;
+  }
+  return reason.slice(0, end);
+}
+
+function normalizeUpstreamCloseCode(code: number): number {
+  if (!code || code === 1005 || code === 1006) return 1011;
+  const ok =
+    code === 1000 ||
+    code === 1001 ||
+    code === 1002 ||
+    code === 1003 ||
+    (code >= 1007 && code <= 1014) ||
+    (code >= 3000 && code <= 4999);
+  return ok ? code : 1011;
+}
+
 function bridge(client: CfWebSocket, upstream: CfWebSocket, taskId: string) {
   let started = false;
   let finishPending = false;
   let finishSent = false;
+  let taskFinished = false;
   let closing = false;
   let pendingBytes = 0;
   const pending: ArrayBuffer[] = [];
@@ -72,7 +98,7 @@ function bridge(client: CfWebSocket, upstream: CfWebSocket, taskId: string) {
   const closeBoth = (code = 1000, reason = "") => {
     if (closing) return;
     closing = true;
-    const safeReason = reason.slice(0, 120);
+    const safeReason = truncateCloseReason(reason);
     try {
       upstream.close(code, safeReason);
     } catch {
@@ -85,14 +111,38 @@ function bridge(client: CfWebSocket, upstream: CfWebSocket, taskId: string) {
     }
   };
 
+  const sendUpstream = (data: string | ArrayBuffer): boolean => {
+    if (closing) return false;
+    try {
+      upstream.send(data);
+      return true;
+    } catch {
+      closeBoth(1011, "upstream-send-failed");
+      return false;
+    }
+  };
+
+  const sendClient = (data: string): boolean => {
+    if (closing) return false;
+    try {
+      client.send(data);
+      return true;
+    } catch {
+      closeBoth(1011, "client-send-failed");
+      return false;
+    }
+  };
+
   const sendFinish = () => {
     if (finishSent || closing) return;
     finishSent = true;
-    upstream.send(JSON.stringify(buildFinishTask(taskId)));
+    sendUpstream(JSON.stringify(buildFinishTask(taskId)));
   };
 
   const flushPending = () => {
-    for (const chunk of pending) upstream.send(chunk);
+    for (const chunk of pending) {
+      if (!sendUpstream(chunk)) return;
+    }
     pending.length = 0;
     pendingBytes = 0;
     if (finishPending) sendFinish();
@@ -108,19 +158,26 @@ function bridge(client: CfWebSocket, upstream: CfWebSocket, taskId: string) {
       return;
     }
     if (parsed.type === "result") {
-      client.send(JSON.stringify(parsed.message));
+      sendClient(JSON.stringify(parsed.message));
       return;
     }
     if (parsed.type === "task-finished") {
+      taskFinished = true;
       closeBoth(1000);
       return;
     }
     if (parsed.type === "task-failed") {
-      closeBoth(1011, parsed.message);
+      closeBoth(1011, "task-failed");
     }
   });
 
-  upstream.addEventListener("close", () => closeBoth(1000));
+  upstream.addEventListener("close", (event) => {
+    if (closing) return;
+    const { code, reason } = event as CloseEvent;
+    let forwardCode = normalizeUpstreamCloseCode(code);
+    if (forwardCode === 1000 && !taskFinished) forwardCode = 1011;
+    closeBoth(forwardCode, reason);
+  });
   upstream.addEventListener("error", () => closeBoth(1011, "upstream error"));
 
   client.addEventListener("message", (event) => {
@@ -130,7 +187,7 @@ function bridge(client: CfWebSocket, upstream: CfWebSocket, taskId: string) {
   client.addEventListener("close", () => closeBoth(1000));
   client.addEventListener("error", () => closeBoth(1011, "client error"));
 
-  upstream.send(JSON.stringify(buildRunTask(taskId)));
+  if (!sendUpstream(JSON.stringify(buildRunTask(taskId)))) return;
 
   async function handleClientMessage(data: unknown) {
     if (closing) return;
@@ -155,7 +212,7 @@ function bridge(client: CfWebSocket, upstream: CfWebSocket, taskId: string) {
       pendingBytes += buf.byteLength;
       return;
     }
-    upstream.send(buf);
+    sendUpstream(buf);
   }
 }
 
