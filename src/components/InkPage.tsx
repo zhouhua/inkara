@@ -121,6 +121,7 @@ const DOUBLE_TAP_MS = 380;
 const DOUBLE_TAP_MAX_MOVE_CSS = 10;
 const DOUBLE_TAP_MAX_DURATION_MS = 250;
 const VOICE_NOTE_MS = 2800;
+const VOICE_POLISH_TIMEOUT_MS = 20_000;
 
 type VoicePhase = "idle" | "listening" | "warn" | "polishing";
 
@@ -148,6 +149,10 @@ export function InkPage() {
   const voiceEpochRef = useRef(0);
   const voiceStoppingRef = useRef(false);
   const voiceUndoRef = useRef(false);
+  const voicePublishRef = useRef(false);
+  const voiceCancelEpochRef = useRef<number | null>(null);
+  const voiceNeedsRefocusRef = useRef(false);
+  const voiceRestoreCaretRef = useRef<number | null>(null);
   const voiceNoteTimerRef = useRef<number | null>(null);
   const dprRef = useRef(1);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1429,7 +1434,9 @@ export function InkPage() {
   const afterTypeEdit = useCallback(
     (value: string) => {
       syncEditHistory("type");
-      setStatusExtra(null);
+      if (!voicePublishRef.current) {
+        setStatusExtra(null);
+      }
       if (value.trim()) {
         setPhase("writing");
         scheduleIdle();
@@ -1813,6 +1820,7 @@ export function InkPage() {
 
   const reliveMemoryPage = useCallback(
     async (page: MemoryPage) => {
+      if (voicePhaseRef.current !== "idle") return;
       setHistoryOpen(false);
       clearReadAs();
       setRecallCite(null);
@@ -1889,19 +1897,38 @@ export function InkPage() {
       typeRedoRef.current = [];
       voiceUndoRef.current = true;
     }
+    voicePublishRef.current = true;
     applyingTypeHistoryRef.current = true;
-    onTypedChange(full);
-    applyingTypeHistoryRef.current = false;
+    try {
+      onTypedChange(full);
+    } finally {
+      applyingTypeHistoryRef.current = false;
+      voicePublishRef.current = false;
+    }
     clearIdle();
     const caret = session.prefix.length + session.text.length;
     requestAnimationFrame(() => {
-      const ta = typeRef.current;
-      if (!ta) return;
-      ta.setSelectionRange(caret, caret);
+      selectTypeCaret(caret);
     });
   }
 
+  function selectTypeCaret(caret: number) {
+    const ta = typeRef.current;
+    if (!ta || ta.disabled) return;
+    const pos = Math.max(0, Math.min(caret, ta.value.length));
+    try {
+      ta.setSelectionRange(pos, pos);
+    } catch {
+      /* selection unavailable */
+    }
+  }
+
   function finishVoiceIdle() {
+    const vs = voiceSessionRef.current;
+    if (vs) {
+      voiceRestoreCaretRef.current = vs.prefix.length + vs.text.length;
+    }
+    voiceNeedsRefocusRef.current = true;
     voicePhaseRef.current = "idle";
     setVoicePhase("idle");
     voiceSessionRef.current = null;
@@ -1919,23 +1946,35 @@ export function InkPage() {
     if (voicePhaseRef.current === "idle") return;
     if (voiceStoppingRef.current) return;
     voiceStoppingRef.current = true;
-    const epoch = ++voiceEpochRef.current;
     clearVoiceTimers();
+    // Same epoch through stop() so onPartial can still commit finals.
+    const epoch = voiceEpochRef.current;
     const stop = sttStopRef.current;
     sttStopRef.current = null;
-    if (stop) {
-      try {
-        await stop();
-      } catch {
-        /* mic already stopped */
-      }
+    if (!stop) {
+      // Start never attached. Supersede it so a late result cannot clobber
+      // a newer hold or its status.
+      voiceEpochRef.current = epoch + 1;
+      voiceCancelEpochRef.current = voiceEpochRef.current;
+      finishVoiceIdle();
+      return;
+    }
+    try {
+      await stop();
+    } catch {
+      /* mic already stopped */
     }
     if (voiceEpochRef.current !== epoch) {
       voiceStoppingRef.current = false;
       return;
     }
     const vs = voiceSessionRef.current;
-    if (!vs || !doPolish || !vs.text.trim()) {
+    if (!doPolish) {
+      voiceEpochRef.current = epoch + 1;
+      finishVoiceIdle();
+      return;
+    }
+    if (!vs || !vs.text.trim()) {
       finishVoiceIdle();
       return;
     }
@@ -1949,10 +1988,12 @@ export function InkPage() {
           text: vs.text,
           locale: settingsRef.current.locale,
         }),
+        signal: AbortSignal.timeout(VOICE_POLISH_TIMEOUT_MS),
       });
       if (voiceEpochRef.current !== epoch) return;
       if (res.ok) {
         const data = (await res.json()) as { text?: string };
+        if (voiceEpochRef.current !== epoch) return;
         if (data.text) {
           const next = setVoiceSessionText(vs, data.text);
           voiceSessionRef.current = next;
@@ -1977,6 +2018,7 @@ export function InkPage() {
   async function startVoice() {
     if (inputMode !== "type" || inputLocked || awaitingContinue) return;
     if (voicePhaseRef.current !== "idle" || voiceStoppingRef.current) return;
+    voiceCancelEpochRef.current = null;
     const epoch = ++voiceEpochRef.current;
     const full = typedTextRef.current;
     const ta = typeRef.current;
@@ -2006,6 +2048,8 @@ export function InkPage() {
       const session = await startSttSession({
         onPartial: (text) => {
           if (voiceEpochRef.current !== epoch) return;
+          const phaseNow = voicePhaseRef.current;
+          if (phaseNow !== "listening" && phaseNow !== "warn") return;
           const vs = voiceSessionRef.current;
           if (!vs) return;
           const next = setVoiceSessionText(vs, text);
@@ -2014,6 +2058,8 @@ export function InkPage() {
         },
         onError: () => {
           if (voiceEpochRef.current !== epoch) return;
+          const phaseNow = voicePhaseRef.current;
+          if (phaseNow !== "listening" && phaseNow !== "warn") return;
           showVoiceStatus("voiceFailed");
           void stopVoice(false);
         },
@@ -2026,16 +2072,19 @@ export function InkPage() {
     } catch (err) {
       const denied = err instanceof Error && err.message === "mic_denied";
       if (voiceEpochRef.current !== epoch) {
-        if (denied) showVoiceStatus("voiceNeedMic");
+        // A newer hold clears voiceCancelEpochRef. Only the cancelled
+        // start that is still the latest epoch may surface mic denial.
+        if (
+          denied &&
+          voiceCancelEpochRef.current === voiceEpochRef.current
+        ) {
+          showVoiceStatus("voiceNeedMic");
+        }
         return;
       }
       clearVoiceTimers();
       showVoiceStatus(denied ? "voiceNeedMic" : "voiceFailed");
-      voiceSessionRef.current = null;
-      voiceUndoRef.current = false;
-      voicePhaseRef.current = "idle";
-      setVoicePhase("idle");
-      voiceStoppingRef.current = false;
+      finishVoiceIdle();
     }
   }
 
@@ -2097,6 +2146,23 @@ export function InkPage() {
 
     tryCommit();
   };
+
+  useEffect(() => {
+    if (voicePhase !== "idle" || !voiceNeedsRefocusRef.current) return;
+    voiceNeedsRefocusRef.current = false;
+    const caret = voiceRestoreCaretRef.current;
+    voiceRestoreCaretRef.current = null;
+    const ui = useUiStore.getState();
+    if (ui.panel || ui.billingOpen) return;
+    const ta = typeRef.current;
+    if (!ta || ta.disabled || ta.getAttribute("aria-hidden") === "true") return;
+    try {
+      ta.focus({ preventScroll: true });
+    } catch {
+      /* focus unavailable */
+    }
+    if (caret != null) selectTypeCaret(caret);
+  }, [voicePhase]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -2424,11 +2490,11 @@ export function InkPage() {
             type="button"
             className="ink-link ink-icon-btn"
             onClick={() => {
-              if (!dbReady) return;
+              if (!dbReady || voicePhaseRef.current !== "idle") return;
               setHistoryOpen(true);
             }}
-            disabled={!dbReady}
-            aria-disabled={!dbReady}
+            disabled={!dbReady || voiceBusy}
+            aria-disabled={!dbReady || voiceBusy}
             aria-label={t(settings.locale, "history")}
             title={t(settings.locale, "history")}
           >
