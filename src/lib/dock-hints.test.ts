@@ -60,4 +60,48 @@ describe("collectDockHints", () => {
     });
     expect(hints.some((h) => h.id === "action")).toBe(true);
   });
+
+  it("shows voice listening wait tip", () => {
+    const hints = collectDockHints({
+      ...base,
+      voicePhase: "listening",
+    });
+    expect(hints).toContainEqual({
+      id: "voice-listening",
+      text: "正在听…",
+      kind: "wait",
+    });
+  });
+
+  it("shows voice warn wait tip", () => {
+    const hints = collectDockHints({
+      ...base,
+      voicePhase: "warn",
+    });
+    expect(hints).toContainEqual({
+      id: "voice-warn",
+      text: "还剩约 1 分钟",
+      kind: "wait",
+    });
+  });
+
+  it("shows voice polishing wait tip", () => {
+    const hints = collectDockHints({
+      ...base,
+      voicePhase: "polishing",
+    });
+    expect(hints).toContainEqual({
+      id: "voice-polishing",
+      text: "整理中…",
+      kind: "wait",
+    });
+  });
+
+  it("omits voice hint when voice phase is idle", () => {
+    const hints = collectDockHints({
+      ...base,
+      voicePhase: "idle",
+    });
+    expect(hints.some((h) => h.id.startsWith("voice-"))).toBe(false);
+  });
 });

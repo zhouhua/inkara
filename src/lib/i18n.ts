@@ -127,6 +127,13 @@ const messages = {
     probeOk: "连接正常",
     embedLoading: "记忆检索准备中…",
     embedLoadingPct: "记忆检索准备中 · {pct}%",
+    voiceMic: "按住说话",
+    voiceListening: "正在听…",
+    voicePolishing: "整理中…",
+    voiceWarn: "还剩约 1 分钟",
+    voiceNeedMic: "需要麦克风权限才能语音输入",
+    voiceFailed: "语音识别暂时不可用",
+    voicePolishFailed: "未整理",
     help: "帮助",
     helpIntro:
       "墨语 · inkara 是一张会回答的纸。你写下一两句，它以手写体轻轻回应。",
@@ -139,6 +146,8 @@ const messages = {
       "保持笔迹模式。用鼠标、手指或手写笔写下几句——例如「今天总觉得闷」。按压越重线越粗；写错了用右上角撤销 / 重做。写完后在笔迹外的空白处双击，或按 [[Enter]]。提交后顶部可能留下淡墨辨认，回答在纸面中部逐字浮现。",
     helpMemoType:
       "点右上角文字图标切到文字模式，纸上出现输入区。同一段里换行用 [[Shift]]+[[Enter]]；写完按 [[Enter]]，或在输入区外双击空白。之后与手写相同：辨认引用、回答浮现。",
+    helpMemoVoice:
+      "文字模式下，按住输入区旁的麦克风说话，松手后文字会略作整理；仍用 Enter 或双击提交。",
     helpMemoAuto:
       "打开设定，把提交方式改为自动延迟，延迟时长可选快（约 3.4 秒）/ 普通（约 4.5 秒）/ 慢（约 6 秒）。停笔后底部出现环形进度，转满即交卷；仍可随时双击空白或按 [[Enter]] 提前交卷。",
     helpMemoRecall:
@@ -277,6 +286,13 @@ const messages = {
     probeOk: "Connection ok",
     embedLoading: "Preparing recall…",
     embedLoadingPct: "Preparing recall · {pct}%",
+    voiceMic: "Hold to talk",
+    voiceListening: "Listening…",
+    voicePolishing: "Tidying…",
+    voiceWarn: "About 1 minute left",
+    voiceNeedMic: "Microphone access is needed for voice input",
+    voiceFailed: "Voice input is temporarily unavailable",
+    voicePolishFailed: "Couldn’t tidy — kept as heard",
     help: "Help",
     helpIntro:
       "墨语 · inkara is a page that answers back. Write a line or two, and it replies quietly in handwriting.",
@@ -289,6 +305,8 @@ const messages = {
       "Stay on Pen. With a mouse, finger, or stylus, write a few lines—e.g. “I feel tight today.” Harder press makes a thicker stroke; use Undo / Redo at the top right if you slip. When finished, double-tap empty space (not on the ink) or press [[Enter]]. After you submit, a faint reading quote may stay near the top; the reply rises character by character mid-page.",
     helpMemoType:
       "Tap the text icon at the top right for Type; an input area appears. Use [[Shift]]+[[Enter]] for a new line inside the passage; press [[Enter]] when done, or double-tap empty space outside the input. Then it matches handwriting: reading quote, reply rising.",
+    helpMemoVoice:
+      "In type mode, hold the mic beside the input to dictate; on release the text is lightly tidied. Submit with Enter or double-click as usual.",
     helpMemoAuto:
       "Open Menu, set Submit to Auto delay, and pick Fast (~3.4s) / Normal (~4.5s) / Slow (~6s). After you pause, a ring fills at the bottom and sends; you can still double-tap empty space or press [[Enter]] early.",
     helpMemoRecall:

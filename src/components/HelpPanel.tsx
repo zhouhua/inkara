@@ -14,6 +14,7 @@ type Props = {
 const MEMOS = [
   "helpMemoPen",
   "helpMemoType",
+  "helpMemoVoice",
   "helpMemoAuto",
   "helpMemoRecall",
   "helpMemoHistory",

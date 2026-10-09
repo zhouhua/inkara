@@ -26,6 +26,7 @@ type CollectInput = {
   contentPresent: boolean;
   idleArmed: boolean;
   manualSubmitHint: string;
+  voicePhase?: "idle" | "listening" | "warn" | "polishing";
 };
 
 /**
@@ -45,6 +46,7 @@ export function collectDockHints(input: CollectInput): DockHint[] {
     contentPresent,
     idleArmed,
     manualSubmitHint,
+    voicePhase,
   } = input;
 
   if (statusExtra) {
@@ -74,6 +76,15 @@ export function collectDockHints(input: CollectInput): DockHint[] {
     hints.push({
       id: waitPhaseText.id,
       text: waitPhaseText.text,
+      kind: "wait",
+    });
+  }
+
+  const voiceHint = voiceHintForPhase(locale, voicePhase);
+  if (voiceHint) {
+    hints.push({
+      id: voiceHint.id,
+      text: voiceHint.text,
       kind: "wait",
     });
   }
@@ -115,6 +126,22 @@ function waitTextForPhase(
       return { id: "wait-answering", text: t(locale, "answering") };
     case "recalling":
       return { id: "wait-recalling", text: t(locale, "recalling") };
+    default:
+      return null;
+  }
+}
+
+function voiceHintForPhase(
+  locale: Locale,
+  voicePhase: CollectInput["voicePhase"]
+): { id: string; text: string } | null {
+  switch (voicePhase) {
+    case "listening":
+      return { id: "voice-listening", text: t(locale, "voiceListening") };
+    case "warn":
+      return { id: "voice-warn", text: t(locale, "voiceWarn") };
+    case "polishing":
+      return { id: "voice-polishing", text: t(locale, "voicePolishing") };
     default:
       return null;
   }
