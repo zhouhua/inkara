@@ -18,7 +18,7 @@ function resolveSttWsUrl(): string | null {
   return null;
 }
 
-export async function POST() {
+export async function POST(_req: Request) {
   const secret = resolveSttTicketSecret();
   if (!secret) {
     return Response.json({ error: "missing_ticket_secret" }, { status: 503 });
