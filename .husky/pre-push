@@ -1,0 +1,2 @@
+# Mirror the blocking part of CI (lint has large pre-existing debt; E2E is too slow for every push).
+pnpm test

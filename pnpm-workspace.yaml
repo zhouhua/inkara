@@ -1,3 +1,8 @@
+packages:
+  - "."
+  - "workers/*"
+
+# Allow native postinstall builds used by the toolchain.
 allowBuilds:
   esbuild: true
   onnxruntime-node: true

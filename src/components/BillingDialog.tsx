@@ -52,9 +52,22 @@ export function BillingDialog({ open, locale, onClose }: Props) {
   const [channel, setChannel] = useState<PayChannel>("alipay");
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
-  const payBaselineRef = useRef<{ purchased: number; subActive: boolean } | null>(
-    null,
-  );
+  const [prevOpen, setPrevOpen] = useState(false);
+  const payBaselineRef = useRef<{
+    purchased: number;
+    subActive: boolean;
+  } | null>(null);
+
+  // Reset checkout UI when the dialog opens (adjust state while rendering).
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setLoading(true);
+      setError(null);
+      setQrCodeUrl(null);
+      setPendingOrderId(null);
+    }
+  }
 
   const refreshMe = useCallback(async () => {
     await fetch("/api/billing/anon", { method: "POST" });
@@ -67,10 +80,6 @@ export function BillingDialog({ open, locale, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setQrCodeUrl(null);
-    setPendingOrderId(null);
     void (async () => {
       try {
         const data = await refreshMe();
@@ -113,10 +122,7 @@ export function BillingDialog({ open, locale, onClose }: Props) {
         if (!baseline) return;
         const purchased = data.credits?.purchased ?? 0;
         const active = data.subscription?.active ?? false;
-        if (
-          purchased > baseline.purchased ||
-          (active && !baseline.subActive)
-        ) {
+        if (purchased > baseline.purchased || (active && !baseline.subActive)) {
           setQrCodeUrl(null);
           setPendingOrderId(null);
           payBaselineRef.current = null;
@@ -147,7 +153,9 @@ export function BillingDialog({ open, locale, onClose }: Props) {
         orderId?: string;
       };
       if (!res.ok) {
-        setError(data.message ?? data.error ?? t(locale, "billingCheckoutFailed"));
+        setError(
+          data.message ?? data.error ?? t(locale, "billingCheckoutFailed"),
+        );
         return;
       }
       if (data.mode === "qrcode" && data.codeUrl) {
@@ -160,7 +168,7 @@ export function BillingDialog({ open, locale, onClose }: Props) {
         return;
       }
       if (data.payUrl) {
-        window.location.href = data.payUrl;
+        window.location.assign(data.payUrl);
         return;
       }
       setError(t(locale, "billingCheckoutFailed"));
@@ -191,11 +199,7 @@ export function BillingDialog({ open, locale, onClose }: Props) {
 
   return (
     <div className="billing-layer" role="presentation">
-      <div
-        className="billing-backdrop"
-        onClick={onClose}
-        role="presentation"
-      />
+      <div className="billing-backdrop" onClick={onClose} role="presentation" />
       <div
         className="billing-dialog"
         role="dialog"
@@ -231,13 +235,19 @@ export function BillingDialog({ open, locale, onClose }: Props) {
         )}
 
         {!loggedIn ? (
+          // Auth.js entry is an API route, not an App Router page.
+          // eslint-disable-next-line @next/next/no-html-link-for-pages -- /api/auth/signin
           <a className="text-action billing-login" href="/api/auth/signin">
             {t(locale, "billingSignIn")}
           </a>
         ) : null}
 
         {loggedIn ? (
-          <div className="billing-channels" role="radiogroup" aria-label={t(locale, "billingPayChannel")}>
+          <div
+            className="billing-channels"
+            role="radiogroup"
+            aria-label={t(locale, "billingPayChannel")}
+          >
             <button
               type="button"
               role="radio"
@@ -316,7 +326,9 @@ export function BillingDialog({ open, locale, onClose }: Props) {
           </ul>
         )}
 
-        {loggedIn && me?.subscription?.active && !me.subscription.cancelAtPeriodEnd ? (
+        {loggedIn &&
+        me?.subscription?.active &&
+        !me.subscription.cancelAtPeriodEnd ? (
           <button
             type="button"
             className="text-action billing-cancel"

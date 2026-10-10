@@ -23,45 +23,60 @@
 
 ```bash
 cp .env.example .env.local
-# 编辑 .env.local，填入模型 API Key 与 Endpoint
-npm install
-npm run dev
+# 编辑 .env.local，填入模型 API Key、Endpoint，以及 AUTH_SECRET（匿名 cookie / 登录）
+pnpm install
+pnpm dev
 ```
 
 打开 [http://localhost:3000](http://localhost:3000)。
 
 手机或桌面浏览器可通过「添加到主屏幕 / 安装应用」以独立窗口打开。
 
-### 测试
+### 测试与代码质量
 
 ```bash
-npm test          # Vitest：src/lib 单测 + API route 集成测
-npm run test:e2e  # Playwright：主路径 E2E（自动启动 next dev，并 stub 模型 API）
-npm run test:all  # 上述两者串行
+pnpm test          # Vitest：src/lib 单测 + API route 集成测
+pnpm test:e2e      # Playwright：主路径 E2E（自动启动 next dev，并 stub 模型 API）
+pnpm test:all      # 上述两者串行
+pnpm lint          # ESLint
+pnpm format        # Prettier 写回
+pnpm format:check  # Prettier 只检查
+pnpm typecheck     # TypeScript（tsc --noEmit）
+pnpm ci:local      # 本地近似 CI：lint + 单测
 ```
 
-GitHub Actions 见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)：在 PR / push 上跑 lint、单测与 E2E，**失败不阻塞** Cloudflare 部署（部署流水线仍是独立的 `deploy-cloudflare.yml`）。
+Git hooks（[Husky](https://typicode.github.io/husky/)）在 `pnpm install` 后自动启用：
+
+| Hook         | 作用                                                                                         |
+| ------------ | -------------------------------------------------------------------------------------------- |
+| `pre-commit` | lint-staged：对暂存文件跑 Prettier + ESLint `--fix`                                          |
+| `commit-msg` | [Conventional Commits](https://www.conventionalcommits.org/)（`feat:` / `fix:` / `docs:` …） |
+| `pre-push`   | `pnpm test`（对齐 CI 中会阻塞的单测；E2E 仍只在 CI 跑）                                      |
+
+提交说明示例：`feat: add STT ticket endpoint`、`fix(billing): debit race`。
+
+GitHub Actions 见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)：在 PR / push 上跑 lint（阻塞）、单测与 E2E；CI 失败**不阻塞** Cloudflare 部署（部署流水线仍是独立的 `deploy-cloudflare.yml`）。
 
 E2E 会设置 `SKIP_OPENNEXT_CLOUDFLARE_DEV=1`，跳过 `next.config.ts` 里较慢的 Cloudflare 开发初始化。
 
 ### 环境变量
 
-| 变量 | 说明 | 默认 |
-|------|------|------|
-| `MODEL_API_KEY` | 服务端默认 API Key（用户未自备时使用） | — |
-| `MODEL_BASE_URL` | OpenAI 兼容接口 Base URL | — |
-| `MODEL_NAME` | 视觉模型名称 | — |
-| `AUTH_SECRET` | Auth.js 会话加密密钥（必填才能登录） | — |
-| `AUTH_RESEND_KEY` | Resend API Key；**未设时魔法链接只打印到服务端日志** | — |
-| `AUTH_EMAIL_FROM` | 发信地址 | `onboarding@resend.dev` |
-| `AUTH_TRUST_HOST` | 反代后信任 Host（Workers 建议 `true`） | Auth.js 内已 `trustHost: true` |
-| `NEXT_PUBLIC_APP_URL` | 站点绝对 URL（支付回调/回跳） | 请求 Origin |
-| `WECHAT_PAY_APP_ID` / `MCH_ID` / `SERIAL` / `PRIVATE_KEY` / `API_V3_KEY` | 微信商户 APIv3 Native | — |
-| `WECHAT_PAY_PLATFORM_PUBLIC_KEY` | 微信平台公钥（验签，建议生产配置） | — |
-| `ALIPAY_APP_ID` / `PRIVATE_KEY` / `PUBLIC_KEY` | 支付宝开放平台应用 | — |
-| `ALIPAY_GATEWAY` | 支付宝网关 | 正式网关 |
-| `PAY_ALLOW_MOCK` / `NEXT_PUBLIC_PAY_ALLOW_MOCK` | 允许 `channel=mock`（本地） | 开发环境默认可 mock |
-| `PAY_MOCK_SECRET` | mock 支付校验串 | `inkara-mock-pay` |
+| 变量                                                                     | 说明                                                 | 默认                           |
+| ------------------------------------------------------------------------ | ---------------------------------------------------- | ------------------------------ |
+| `MODEL_API_KEY`                                                          | 服务端默认 API Key（用户未自备时使用）               | —                              |
+| `MODEL_BASE_URL`                                                         | OpenAI 兼容接口 Base URL                             | —                              |
+| `MODEL_NAME`                                                             | 视觉模型名称                                         | —                              |
+| `AUTH_SECRET`                                                            | Auth.js 会话加密密钥（必填才能登录）                 | —                              |
+| `AUTH_RESEND_KEY`                                                        | Resend API Key；**未设时魔法链接只打印到服务端日志** | —                              |
+| `AUTH_EMAIL_FROM`                                                        | 发信地址                                             | `onboarding@resend.dev`        |
+| `AUTH_TRUST_HOST`                                                        | 反代后信任 Host（Workers 建议 `true`）               | Auth.js 内已 `trustHost: true` |
+| `NEXT_PUBLIC_APP_URL`                                                    | 站点绝对 URL（支付回调/回跳）                        | 请求 Origin                    |
+| `WECHAT_PAY_APP_ID` / `MCH_ID` / `SERIAL` / `PRIVATE_KEY` / `API_V3_KEY` | 微信商户 APIv3 Native                                | —                              |
+| `WECHAT_PAY_PLATFORM_PUBLIC_KEY`                                         | 微信平台公钥（**生产必填**，用于回调验签）           | —                              |
+| `ALIPAY_APP_ID` / `PRIVATE_KEY` / `PUBLIC_KEY`                           | 支付宝开放平台应用                                   | —                              |
+| `ALIPAY_GATEWAY`                                                         | 支付宝网关                                           | 正式网关                       |
+| `PAY_ALLOW_MOCK` / `NEXT_PUBLIC_PAY_ALLOW_MOCK`                          | 允许 `channel=mock`（本地）                          | 开发环境默认可 mock            |
+| `PAY_MOCK_SECRET`                                                        | mock 支付校验串                                      | `inkara-mock-pay`              |
 
 **计费 / 登录 / 内容：** D1 绑定名 `DB`（库 `inkara`，见 `wrangler.jsonc`）。本地迁移：
 
@@ -96,11 +111,11 @@ npx wrangler d1 migrations apply inkara --remote
 # DASHSCOPE_API_KEY=sk-...
 # STT_TICKET_SECRET=   # 与 Next 的 STT_TICKET_SECRET 相同；未设时两边都用 AUTH_SECRET
 
-npm run stt-proxy
+pnpm stt-proxy
 # 等价：cd workers/stt-proxy && npx wrangler dev
 ```
 
-Worker 监听 `ws://127.0.0.1:8787`。`.env.local` 里设置 `NEXT_PUBLIC_STT_WS_URL=ws://127.0.0.1:8787`，并保证票据密钥与 Worker 一致。该端口与 `npm run preview` 冲突，联调时只开其中一个。
+Worker 监听 `ws://127.0.0.1:8787`。`.env.local` 里设置 `NEXT_PUBLIC_STT_WS_URL=ws://127.0.0.1:8787`，并保证票据密钥与 Worker 一致。该端口与 `pnpm preview` 冲突，联调时只开其中一个。
 
 生产密钥：
 
@@ -125,14 +140,14 @@ npx wrangler secret put STT_TICKET_SECRET
 
 ```bash
 # 确保 .env.local 或 .dev.vars 中已配置 MODEL_*（preview 会按生产环境加载）
-npm run preview
+pnpm preview
 ```
 
 ### 本机直接发布
 
 ```bash
 npx wrangler login
-npm run deploy
+pnpm run deploy
 ```
 
 生产环境已配置 Worker Secrets：`MODEL_API_KEY` / `MODEL_BASE_URL` / `MODEL_NAME`，以及自定义域名 `inkara.zhouhua.site`。更新密钥：
@@ -153,26 +168,26 @@ Worker 已上线；若要推 `main` 自动构建，在 Dashboard 连接仓库即
    - **Root directory**：仓库根目录
    - **Production branch**：`main`
 
-本地日常开发仍用 `npm run dev`。
+本地日常开发仍用 `pnpm dev`。
 
 ## 测试
 
 ```bash
-npm test          # Vitest：src/lib 单测 + API route 集成测
-npm run test:e2e  # Playwright：主路径 E2E（stub 外部 API）
-npm run test:all  # 上述两者
+pnpm test          # Vitest：src/lib 单测 + API route 集成测
+pnpm test:e2e      # Playwright：主路径 E2E（stub 外部 API）
+pnpm test:all      # 上述两者
 ```
 
 GitHub Actions 有独立 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)（`lint` + unit + e2e）。**CI 失败不会挡住** Cloudflare 部署（[`deploy-cloudflare.yml`](.github/workflows/deploy-cloudflare.yml) 仍独立运行）。
 
 ## 使用
 
-1. 在纸面书写或输入  
-2. **双击空白**或按 **Enter** 提交（文字模式用 Shift+Enter 换行）  
-3. 墨迹渗入后，顶部可保留淡墨引用辨认内容；回答在纸面中部浮现  
-4. 写「找××那页」可唤起旧页；轻触纸面回到今天  
-5. 设定里可改为自动延迟提交，并选择快 / 普通 / 慢；也可填写自备 API Key / Endpoint / 模型  
-6. 右上角：笔迹 / 文字、旧页、帮助、设定  
+1. 在纸面书写或输入
+2. **双击空白**或按 **Enter** 提交（文字模式用 Shift+Enter 换行）
+3. 墨迹渗入后，顶部可保留淡墨引用辨认内容；回答在纸面中部浮现
+4. 写「找××那页」可唤起旧页；轻触纸面回到今天
+5. 设定里可改为自动延迟提交，并选择快 / 普通 / 慢；也可填写自备 API Key / Endpoint / 模型
+6. 右上角：笔迹 / 文字、旧页、帮助、设定
 
 应用内也可点击右上角「？」打开帮助。
 

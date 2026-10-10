@@ -29,10 +29,7 @@ import RubberSegment from "@/components/RubberSegment";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { VoiceMicButton } from "@/components/VoiceMicButton";
 import { askPageStream } from "@/lib/ask-stream";
-import {
-  resolvePaperError,
-  type PaperErrorAction,
-} from "@/lib/ask-errors";
+import { resolvePaperError, type PaperErrorAction } from "@/lib/ask-errors";
 import { hydrateDb, whenDbReady } from "@/lib/db";
 import { collectDockHints } from "@/lib/dock-hints";
 import {
@@ -61,10 +58,7 @@ import {
 } from "@/lib/memory";
 import { getPaperStyle } from "@/lib/paper";
 import { ensureAnonSubject } from "@/lib/billing-client";
-import {
-  rankRecallCandidates,
-  toRankCandidates,
-} from "@/lib/recall-rank";
+import { rankRecallCandidates, toRankCandidates } from "@/lib/recall-rank";
 import {
   extractRecallNeedle,
   hybridRetrieve,
@@ -82,11 +76,7 @@ import {
   type AppSettings,
   type InputMode,
 } from "@/lib/settings";
-import {
-  startSttSession,
-  VOICE_MAX_MS,
-  VOICE_WARN_MS,
-} from "@/lib/stt-client";
+import { startSttSession, VOICE_MAX_MS, VOICE_WARN_MS } from "@/lib/stt-client";
 import {
   beginVoiceSession,
   setVoiceSessionText,
@@ -94,11 +84,7 @@ import {
   type VoiceSession,
 } from "@/lib/voice-span";
 import { useMemoryStore } from "@/stores/memory-store";
-import {
-  getPhase,
-  setPhase,
-  useSessionStore,
-} from "@/stores/session-store";
+import { getPhase, setPhase, useSessionStore } from "@/stores/session-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useUiStore } from "@/stores/ui-store";
 import {
@@ -253,7 +239,7 @@ export function InkPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [hydrateMemoryStore, hydrateSettingsStore, setDbReady]);
 
   useEffect(() => {
     typedTextRef.current = typedText;
@@ -332,7 +318,7 @@ export function InkPage() {
     const sync = () => {
       const overlap = Math.max(
         0,
-        window.innerHeight - vv.height - vv.offsetTop
+        window.innerHeight - vv.height - vv.offsetTop,
       );
       setVvOffset(overlap);
     };
@@ -370,7 +356,7 @@ export function InkPage() {
       }
       return next;
     },
-    [clearIdle, patchSettingsStore]
+    [clearIdle, patchSettingsStore],
   );
 
   const syncEditHistory = useCallback((mode: InputMode) => {
@@ -423,7 +409,7 @@ export function InkPage() {
 
     const quoteEl = wrap.querySelector(".read-as-quote") as HTMLElement | null;
     const citeEl = wrap.querySelector(
-      "[data-recall-cite]"
+      "[data-recall-cite]",
     ) as HTMLElement | null;
     const bounds = measureDialogueCssBounds({
       wrap,
@@ -437,7 +423,7 @@ export function InkPage() {
     const { risePx, writingTopPx: top } = computeDialoguePark(
       bounds,
       chromeClearanceCss(wrap),
-      { wrapHeight: wrapH }
+      { wrapHeight: wrapH },
     );
     setDialogueRisePx(risePx);
     setWritingTopPx(top);
@@ -458,7 +444,7 @@ export function InkPage() {
     const h = wrap?.getBoundingClientRect().height ?? window.innerHeight;
     const quoteCssH = Math.min(
       72,
-      18 + Math.ceil(transcription.length / 28) * 22
+      18 + Math.ceil(transcription.length / 28) * 22,
     );
     setReadAsTopPx(Math.max(72, h * 0.5 - quoteCssH - 8) + 20);
   }, []);
@@ -527,7 +513,7 @@ export function InkPage() {
       }
       ctx.restore();
     },
-    [prepareReplyCtx]
+    [prepareReplyCtx],
   );
 
   const showPaperError = useCallback(
@@ -537,7 +523,7 @@ export function InkPage() {
       setStatusExtra(null);
       setPhase("error");
     },
-    [writePaperMessage]
+    [writePaperMessage],
   );
 
   const animateRecallPage = useCallback(
@@ -559,7 +545,7 @@ export function InkPage() {
           day: "numeric",
           hour: "2-digit",
           minute: "2-digit",
-        }
+        },
       );
 
       const blocks: { label: string; body: string }[] = [
@@ -595,8 +581,8 @@ export function InkPage() {
         padY,
         Math.min(
           (canvas.height - blockHeight) / 2,
-          canvas.height - padY - blockHeight
-        )
+          canvas.height - padY - blockHeight,
+        ),
       );
 
       const paint = (offsetY: number, alpha: number) => {
@@ -657,7 +643,7 @@ export function InkPage() {
         requestAnimationFrame(tick);
       });
     },
-    [prepareReplyCtx]
+    [prepareReplyCtx],
   );
 
   /** Hand-ink glyph reveal — skeleton thinning is unusable on CJK brush fonts. */
@@ -665,7 +651,7 @@ export function InkPage() {
     async (
       getText: () => string,
       isDone: () => boolean,
-      signal: { cancelled: boolean }
+      signal: { cancelled: boolean },
     ) => {
       const reduced = prefersReducedMotion();
       const quoteOf = () => readAsTextRef.current;
@@ -760,7 +746,7 @@ export function InkPage() {
         startY: number,
         dpr: number,
         quoteCssH: number,
-        gapCss: number
+        gapCss: number,
       ) => {
         if (!quoteOf()) return;
         const top = quoteTopCssPx(startY, dpr, quoteCssH, gapCss);
@@ -772,7 +758,7 @@ export function InkPage() {
       const paintPainted = (
         frame: NonNullable<ReturnType<typeof layoutAt>>,
         count: number,
-        progressive?: { index: number; progress: number }
+        progressive?: { index: number; progress: number },
       ) => {
         const { canvas, ctx, dpr, chars } = frame;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -799,13 +785,13 @@ export function InkPage() {
         const usable = canvas.height - padY * 2;
         return Math.max(
           padY + quoteSpace,
-          padY + quoteSpace + (usable - quoteSpace - lineHeight) / 2
+          padY + quoteSpace + (usable - quoteSpace - lineHeight) / 2,
         );
       };
 
       const easeScrollForOverflow = (
         frame: NonNullable<ReturnType<typeof layoutAt>>,
-        startY: number
+        startY: number,
       ) => {
         const { chars, padY, lineHeight, canvasHeight } = frame;
         if (chars.length === 0) return startY;
@@ -861,7 +847,7 @@ export function InkPage() {
         await sleep(charRevealDelay(chars[i]?.ch ?? " ", false));
       }
     },
-    [prepareReplyCtx]
+    [prepareReplyCtx],
   );
 
   const resetToReady = useCallback(() => {
@@ -881,7 +867,7 @@ export function InkPage() {
     async (
       image: string,
       typedSnapshot: string,
-      opts?: { gateReveal?: Promise<void> }
+      opts?: { gateReveal?: Promise<void> },
     ) => {
       const locale = settingsRef.current.locale;
       const animSignal = animSignalRef.current;
@@ -912,17 +898,14 @@ export function InkPage() {
         reveal.promise = revealAnswerLive(
           () => liveReplyRef.current,
           () => streamDoneRef.current,
-          revealCancel
+          revealCancel,
         );
       };
 
       const openRevealGate = () => {
         if (revealGateOpen || animSignal.cancelled) return;
         revealGateOpen = true;
-        if (
-          getPhase() === "thinking" &&
-          liveReplyRef.current
-        ) {
+        if (getPhase() === "thinking" && liveReplyRef.current) {
           setPhase("answering");
         }
         if (pendingReadAs) {
@@ -972,7 +955,7 @@ export function InkPage() {
               }
             },
           },
-          { signal: controller.signal }
+          { signal: controller.signal },
         );
 
         if (opts?.gateReveal) {
@@ -987,8 +970,7 @@ export function InkPage() {
           return;
         }
 
-        const transcription =
-          result.transcription || typedSnapshot || "";
+        const transcription = result.transcription || typedSnapshot || "";
         liveReplyRef.current = result.reply || liveReplyRef.current || buffered;
         const finalReply = liveReplyRef.current;
         const isRecall =
@@ -1041,7 +1023,7 @@ export function InkPage() {
               if (rank.rankedIds.length > 0) {
                 ordered = orderPagesByRankedIds(
                   rank.rankedIds,
-                  scored.map((s) => s.page)
+                  scored.map((s) => s.page),
                 );
               }
             } catch {
@@ -1075,7 +1057,7 @@ export function InkPage() {
                   startRevealIfNeeded();
                 },
               },
-              { signal: controller.signal }
+              { signal: controller.signal },
             );
 
             if (animSignal.cancelled || controller.signal.aborted) {
@@ -1099,7 +1081,7 @@ export function InkPage() {
               await revealAnswerLive(
                 () => missReply,
                 () => true,
-                revealCancel
+                revealCancel,
               );
             }
 
@@ -1137,7 +1119,7 @@ export function InkPage() {
                 liveReplyRef.current += text;
               },
             },
-            { signal: controller.signal }
+            { signal: controller.signal },
           );
 
           if (animSignal.cancelled || controller.signal.aborted) {
@@ -1183,7 +1165,7 @@ export function InkPage() {
           await revealAnswerLive(
             () => finalReply,
             () => true,
-            revealCancel
+            revealCancel,
           );
         }
 
@@ -1214,8 +1196,7 @@ export function InkPage() {
         const err = e as { error?: string; message?: string };
         const offline = typeof navigator !== "undefined" && !navigator.onLine;
         const code =
-          err.error ||
-          (e instanceof TypeError ? "request_failed" : undefined);
+          err.error || (e instanceof TypeError ? "request_failed" : undefined);
         const resolved = resolvePaperError({ error: code, offline });
         showPaperError(resolved.messageKey as MessageKey, resolved.action);
       } finally {
@@ -1232,7 +1213,7 @@ export function InkPage() {
       revealAnswerLive,
       showReadAsQuote,
       showPaperError,
-    ]
+    ],
   );
 
   const commitPage = useCallback(async () => {
@@ -1286,8 +1267,7 @@ export function InkPage() {
     recallingRef.current = false;
 
     // Pen mode needs a vision snapshot; type mode sends typedText only — no fake paint.
-    const image =
-      inputMode === "pen" ? ink.toDataURL("image/png") : "";
+    const image = inputMode === "pen" ? ink.toDataURL("image/png") : "";
     lastCommitRef.current = { image, typedSnapshot };
 
     const fadePromise = (async () => {
@@ -1423,13 +1403,7 @@ export function InkPage() {
       clearIdle();
       setPhase("ready");
     }
-  }, [
-    clearIdle,
-    hasPenInk,
-    redrawInkLayer,
-    scheduleIdle,
-    syncEditHistory,
-  ]);
+  }, [clearIdle, hasPenInk, redrawInkLayer, scheduleIdle, syncEditHistory]);
 
   const afterTypeEdit = useCallback(
     (value: string) => {
@@ -1445,7 +1419,7 @@ export function InkPage() {
         setPhase("ready");
       }
     },
-    [clearIdle, scheduleIdle, syncEditHistory]
+    [clearIdle, scheduleIdle, syncEditHistory],
   );
 
   const canEditNow = () => {
@@ -1542,7 +1516,13 @@ export function InkPage() {
     }
     clearReplyLayer();
     setPhase("ready");
-  }, [clearReplyLayer, paperErrorAction, retryLastCommit, setBillingOpen]);
+  }, [
+    clearReplyLayer,
+    paperErrorAction,
+    retryLastCommit,
+    setBillingOpen,
+    setSettingsOpen,
+  ]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (handlePaperPointer()) return;
@@ -1708,7 +1688,10 @@ export function InkPage() {
     if (awaitingContinue) return;
 
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")) {
+    if (
+      mod &&
+      (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")
+    ) {
       const isRedo =
         e.key === "y" ||
         e.key === "Y" ||
@@ -1721,10 +1704,7 @@ export function InkPage() {
 
     if (e.key !== "Enter" || e.shiftKey) return;
     if (voicePhaseRef.current !== "idle") return;
-    if (
-      getPhase() !== "writing" &&
-      getPhase() !== "ready"
-    ) {
+    if (getPhase() !== "writing" && getPhase() !== "ready") {
       return;
     }
     if (!typedTextRef.current.trim() && !hasPenInk()) return;
@@ -1841,7 +1821,8 @@ export function InkPage() {
       clearReadAs,
       clearReplyLayer,
       parkDialogueForWriting,
-    ]
+      setHistoryOpen,
+    ],
   );
 
   const onExport = () => {
@@ -1853,9 +1834,7 @@ export function InkPage() {
   };
 
   const busy =
-    phase === "thinking" ||
-    phase === "answering" ||
-    phase === "recalling";
+    phase === "thinking" || phase === "answering" || phase === "recalling";
 
   const inputLocked = busy || phase === "error";
   const voiceBusy = voicePhase !== "idle";
@@ -1873,7 +1852,7 @@ export function InkPage() {
 
   function showVoiceStatus(
     key: "voiceNeedMic" | "voiceFailed" | "voicePolishFailed",
-    brief = false
+    brief = false,
   ) {
     const text = t(settingsRef.current.locale, key);
     setStatusExtra(text);
@@ -1891,9 +1870,10 @@ export function InkPage() {
   function publishVoiceText(session: VoiceSession) {
     const full = voiceSessionFull(session);
     if (!voiceUndoRef.current && full !== typedTextRef.current) {
-      typeUndoRef.current = [...typeUndoRef.current, typedTextRef.current].slice(
-        -80
-      );
+      typeUndoRef.current = [
+        ...typeUndoRef.current,
+        typedTextRef.current,
+      ].slice(-80);
       typeRedoRef.current = [];
       voiceUndoRef.current = true;
     }
@@ -2074,10 +2054,7 @@ export function InkPage() {
       if (voiceEpochRef.current !== epoch) {
         // A newer hold clears voiceCancelEpochRef. Only the cancelled
         // start that is still the latest epoch may surface mic denial.
-        if (
-          denied &&
-          voiceCancelEpochRef.current === voiceEpochRef.current
-        ) {
+        if (denied && voiceCancelEpochRef.current === voiceEpochRef.current) {
           showVoiceStatus("voiceNeedMic");
         }
         return;
@@ -2089,8 +2066,7 @@ export function InkPage() {
   }
 
   const showSessionDock =
-    !busy &&
-    (awaitingContinue || hasDialogueBackground || recallCite != null);
+    !busy && (awaitingContinue || hasDialogueBackground || recallCite != null);
 
   const hasInputForDock = typedText.trim().length > 0 || phase === "writing";
   const clearChapterKind = (() => {
@@ -2113,7 +2089,7 @@ export function InkPage() {
     const target = e.target as HTMLElement | null;
     if (
       target?.closest(
-        "button, a, select, input, .settings-sheet, .history-panel, .paper-chrome"
+        "button, a, select, input, .settings-sheet, .history-panel, .paper-chrome",
       )
     ) {
       return;
@@ -2170,7 +2146,10 @@ export function InkPage() {
       if (voicePhaseRef.current !== "idle") return;
 
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")) {
+      if (
+        mod &&
+        (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")
+      ) {
         if (getPhase() !== "ready" && getPhase() !== "writing") {
           return;
         }
@@ -2221,7 +2200,6 @@ export function InkPage() {
     settingsOpen,
     undoEdit,
   ]);
-
 
   const contentPresent = typedText.trim().length > 0 || phase === "writing";
 
@@ -2328,13 +2306,8 @@ export function InkPage() {
             {readAsText}
           </blockquote>
         ) : null}
-        <canvas
-          ref={replyRef}
-          className="reply-layer"
-          aria-hidden
-        />
+        <canvas ref={replyRef} className="reply-layer" aria-hidden />
       </div>
-
 
       {phase === "error" && paperErrorAction ? (
         <button
@@ -2347,10 +2320,10 @@ export function InkPage() {
             paperErrorAction === "open_billing"
               ? "actionOpenBilling"
               : paperErrorAction === "open_settings"
-              ? "actionOpenSettings"
-              : paperErrorAction === "retry"
-                ? "actionRetry"
-                : "actionDismiss"
+                ? "actionOpenSettings"
+                : paperErrorAction === "retry"
+                  ? "actionRetry"
+                  : "actionDismiss",
           )}
         </button>
       ) : null}
@@ -2371,10 +2344,7 @@ export function InkPage() {
         onChange={(e) => onTypedChange(e.target.value)}
         onKeyDown={onTypeKeyDown}
         disabled={
-          inputLocked ||
-          voiceBusy ||
-          inputMode !== "type" ||
-          awaitingContinue
+          inputLocked || voiceBusy || inputMode !== "type" || awaitingContinue
         }
         spellCheck={false}
         aria-label={t(settings.locale, "modeType")}
@@ -2423,7 +2393,11 @@ export function InkPage() {
           aria-label={t(settings.locale, "settings")}
         >
           {editHistory.undo > 0 || editHistory.redo > 0 ? (
-            <div className="edit-history" role="group" aria-label={`${t(settings.locale, "undo")} / ${t(settings.locale, "redo")}`}>
+            <div
+              className="edit-history"
+              role="group"
+              aria-label={`${t(settings.locale, "undo")} / ${t(settings.locale, "redo")}`}
+            >
               <button
                 type="button"
                 className="ink-link ink-icon-btn"

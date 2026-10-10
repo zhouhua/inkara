@@ -33,20 +33,14 @@ export function HistoryPanel({ open, locale, onClose, onRelive }: Props) {
     return [...pagesAsc].reverse();
   }, [open, pagesAsc]);
 
-  const timestamps = useMemo(
-    () => pages.map((p) => p.createdAt),
-    [pages]
-  );
+  const timestamps = useMemo(() => pages.map((p) => p.createdAt), [pages]);
 
   useEffect(() => {
     if (open) refresh();
   }, [open, refresh]);
 
   useEffect(() => {
-    if (!open) {
-      setFiltered([]);
-      return;
-    }
+    if (!open) return;
     let cancelled = false;
     void (async () => {
       const next = await filterHistoryPagesHybrid(pages, {
@@ -129,7 +123,9 @@ export function HistoryPanel({ open, locale, onClose, onRelive }: Props) {
 
         {pages.length > 0 ? (
           <label className="history-search-label" htmlFor={searchId}>
-            <span className="sr-only">{t(locale, "historySearchPlaceholder")}</span>
+            <span className="sr-only">
+              {t(locale, "historySearchPlaceholder")}
+            </span>
             <input
               id={searchId}
               type="search"

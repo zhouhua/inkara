@@ -1,8 +1,4 @@
-import {
-  DAILY_GRANT_AMOUNT,
-  type ActiveSubscription,
-  type CreditKind,
-} from "./schema";
+import { DAILY_GRANT_AMOUNT, type ActiveSubscription } from "./schema";
 import type { BillingStore } from "./ledger";
 import type { D1Database } from "@/lib/db-server";
 

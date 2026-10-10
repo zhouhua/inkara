@@ -25,7 +25,9 @@ export function createAlipayProvider(env: AlipayEnv): PaymentProvider {
   return {
     id: "alipay",
 
-    async createPayment(input: CreatePaymentInput): Promise<CreatePaymentResult> {
+    async createPayment(
+      input: CreatePaymentInput,
+    ): Promise<CreatePaymentResult> {
       const bizContent = JSON.stringify({
         out_trade_no: input.orderId,
         total_amount: (input.amountFen / 100).toFixed(2),
@@ -93,7 +95,6 @@ export function createAlipayProvider(env: AlipayEnv): PaymentProvider {
 }
 
 function formatAlipayTimestamp(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
   // Alipay expects Asia/Shanghai wall time; approximate via +08 offset format.
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",

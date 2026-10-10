@@ -8,6 +8,8 @@ type BrandMarkProps = {
 export function BrandMark({ locale }: BrandMarkProps) {
   return (
     <div className="brand-mark">
+      {/* Static SVG mark; next/image adds little value here. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         className="brand-logo"
         src="/icons/icon-192.svg"

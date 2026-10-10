@@ -1,0 +1,29 @@
+# dependencies & locks
+node_modules
+pnpm-lock.yaml
+package-lock.json
+
+# build / tooling output
+.next
+.out
+out
+build
+.open-next
+.wrangler
+coverage
+test-results
+playwright-report
+blob-report
+playwright/.cache
+
+# generated / env
+next-env.d.ts
+cloudflare-env.d.ts
+*.tsbuildinfo
+.env*
+!.env.example
+
+# local agent
+.superpowers
+.omc
+.worktrees

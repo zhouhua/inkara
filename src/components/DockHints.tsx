@@ -1,16 +1,8 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type CSSProperties,
-} from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { ShinyText } from "@/components/ShinyText";
-import {
-  DOCK_HINT_ROTATE_MS,
-  type DockHint,
-} from "@/lib/dock-hints";
+import { DOCK_HINT_ROTATE_MS, type DockHint } from "@/lib/dock-hints";
 import { prefersReducedMotion } from "@/lib/ink-motion";
 
 type Props = {
@@ -27,15 +19,14 @@ export function DockHints({
 }: Props) {
   const hintsKey = useMemo(() => hints.map((h) => h.id).join("|"), [hints]);
   const [index, setIndex] = useState(0);
-  const [reduceMotion, setReduceMotion] = useState(false);
+  const [prevHintsKey, setPrevHintsKey] = useState(hintsKey);
+  const [reduceMotion] = useState(() => prefersReducedMotion());
 
-  useEffect(() => {
-    setReduceMotion(prefersReducedMotion());
-  }, []);
-
-  useEffect(() => {
+  // Restart the rotation when the hint list identity changes.
+  if (hintsKey !== prevHintsKey) {
+    setPrevHintsKey(hintsKey);
     setIndex(0);
-  }, [hintsKey]);
+  }
 
   useEffect(() => {
     if (hints.length <= 1) return;
@@ -106,10 +97,7 @@ export function DockHints({
       <div className="dock-hint-stage">
         <div
           key={`${hintsKey}:${safeIndex}`}
-          className={[
-            "dock-hint-slide",
-            reduceMotion ? "is-instant" : "",
-          ]
+          className={["dock-hint-slide", reduceMotion ? "is-instant" : ""]
             .filter(Boolean)
             .join(" ")}
         >

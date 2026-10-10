@@ -2,50 +2,72 @@
   "name": "inkara",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@12.10.1",
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:all": "npm run test && npm run test:e2e",
+    "test:all": "pnpm test && pnpm test:e2e",
+    "ci:local": "pnpm lint && pnpm test",
     "preview": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare upload",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
-    "stt-proxy": "wrangler dev -c workers/stt-proxy/wrangler.toml"
+    "stt-proxy": "wrangler dev -c workers/stt-proxy/wrangler.toml",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs}": [
+      "prettier --write",
+      "eslint --fix --max-warnings=99999"
+    ],
+    "*.{json,md,yml,yaml,css}": [
+      "prettier --write"
+    ]
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^3.0.55",
+    "@ai-sdk/openai-compatible": "^3.0.66",
     "@hugeicons/core-free-icons": "^4.3.5",
     "@hugeicons/react": "^1.1.10",
-    "@opennextjs/cloudflare": "^1.20.6",
-    "ai": "^7.0.114",
-    "motion": "^13.4.4",
+    "@opennextjs/cloudflare": "^1.20.9",
+    "ai": "^7.0.133",
+    "motion": "^13.5.1",
     "next": "16.3.5",
     "next-auth": "^5.0.0-beta.32",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "reicon-react": "^1.2.5",
+    "reicon-react": "^1.2.6",
     "zod": "^4.6.5",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@playwright/test": "^1.51.1",
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
+    "@playwright/test": "^1.64.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@vitejs/plugin-react": "^6.1.1",
+    "@vitejs/plugin-react": "^6.1.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
     "jsdom": "^29.1.1",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.9.9",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^3.2.4",
-    "wrangler": "^4.141.0"
+    "wrangler": "^4.148.0"
   }
 }

@@ -15,26 +15,32 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
-        # Repo currently has a large pre-existing eslint debt; do not hide unit/E2E signal.
+        run: pnpm lint
+
+      - name: Format check
+        # Incremental formatting via lint-staged; full-tree check is advisory until debt is cleared.
         continue-on-error: true
-        run: npm run lint
+        run: pnpm format:check
 
       - name: Unit & API tests
-        run: npm run test
+        run: pnpm test
 
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: E2E tests
-        run: npm run test:e2e
+        run: pnpm test:e2e
         env:
           SKIP_OPENNEXT_CLOUDFLARE_DEV: "1"
+          AUTH_SECRET: "ci-e2e-auth-secret"

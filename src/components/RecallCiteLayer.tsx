@@ -57,10 +57,7 @@ function layoutNote(anchor: Anchor, noteW: number, noteH: number): NoteLayout {
   let left = anchor.centerX - noteW / 2;
   left = Math.max(pad, Math.min(left, vw - noteW - pad));
 
-  const caretLeft = Math.max(
-    16,
-    Math.min(anchor.centerX - left, noteW - 16)
-  );
+  const caretLeft = Math.max(16, Math.min(anchor.centerX - left, noteW - 16));
 
   return { top, left, caretLeft, placeAbove };
 }
@@ -76,7 +73,7 @@ export function RecallCiteLayer({
   const segments = useMemo(() => parseCiteReply(reply), [reply]);
   const chipIndexes = useMemo(
     () => citedIndexesInReply(reply, pages.length),
-    [reply, pages.length]
+    [reply, pages.length],
   );
   const openPage =
     openIndex != null && openIndex >= 1 && openIndex <= pages.length
@@ -85,14 +82,17 @@ export function RecallCiteLayer({
 
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [noteBox, setNoteBox] = useState<NoteLayout | null>(null);
+  const [prevOpenIndex, setPrevOpenIndex] = useState(openIndex);
   const noteRef = useRef<HTMLElement | null>(null);
 
-  useEffect(() => {
+  // Clear floating note when citation closes (adjust state during render).
+  if (openIndex !== prevOpenIndex) {
+    setPrevOpenIndex(openIndex);
     if (openIndex == null) {
       setAnchor(null);
       setNoteBox(null);
     }
-  }, [openIndex]);
+  }
 
   useEffect(() => {
     if (openIndex == null) return;
@@ -104,16 +104,14 @@ export function RecallCiteLayer({
   }, [openIndex, onClose]);
 
   useLayoutEffect(() => {
-    if (!openPage || !anchor) {
-      setNoteBox(null);
-      return;
-    }
+    if (!openPage || !anchor) return;
     const noteW = Math.min(352, window.innerWidth - 24);
     const measuredH = noteRef.current?.offsetHeight;
     const noteH =
       measuredH && measuredH > 40
         ? measuredH
         : Math.min(window.innerHeight * 0.42, 280);
+    // DOM measurement → layout state (allowed by react-hooks for ref reads).
     setNoteBox(layoutNote(anchor, noteW, noteH));
   }, [openPage, anchor, openIndex]);
 
@@ -146,8 +144,11 @@ export function RecallCiteLayer({
     (anchor
       ? layoutNote(
           anchor,
-          Math.min(352, typeof window !== "undefined" ? window.innerWidth - 24 : 352),
-          240
+          Math.min(
+            352,
+            typeof window !== "undefined" ? window.innerWidth - 24 : 352,
+          ),
+          240,
         )
       : null);
 
@@ -161,7 +162,11 @@ export function RecallCiteLayer({
       : undefined;
 
   const note =
-    typeof document !== "undefined" && openPage && openIndex != null && anchor && activeBox ? (
+    typeof document !== "undefined" &&
+    openPage &&
+    openIndex != null &&
+    anchor &&
+    activeBox ? (
       <aside
         ref={noteRef}
         className={`recall-note${activeBox.placeAbove ? " is-above" : " is-below"}`}
@@ -187,7 +192,7 @@ export function RecallCiteLayer({
                   day: "numeric",
                   hour: "2-digit",
                   minute: "2-digit",
-                }
+                },
               )}
             </p>
           </div>
