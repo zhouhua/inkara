@@ -1,0 +1,49 @@
+name: Deploy ECS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ecs
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build standalone server
+        env:
+          SKIP_OPENNEXT_CLOUDFLARE_DEV: "1"
+        run: pnpm build:node
+
+      - name: Pack standalone bundle
+        run: bash scripts/pack-standalone.sh
+
+      - name: Upload to ECS and restart
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+          ECS_SSH_KEY: ${{ secrets.ECS_SSH_KEY }}
+          ECS_PORT: ${{ secrets.ECS_PORT }}
+          ECS_APP_DIR: ${{ secrets.ECS_APP_DIR }}
+          ECS_ENV_FILE: ${{ secrets.ECS_ENV_FILE }}
+          ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
+        run: bash scripts/deploy-ecs.sh

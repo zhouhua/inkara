@@ -19,7 +19,7 @@
     "test:all": "pnpm test && pnpm test:e2e",
     "ci:local": "pnpm lint && pnpm test",
     "preview": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare deploy",
+    "deploy:cloudflare": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare upload",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "stt-proxy": "wrangler dev -c workers/stt-proxy/wrangler.toml",

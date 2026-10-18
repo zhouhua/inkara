@@ -55,7 +55,7 @@ Git hooks（[Husky](https://typicode.github.io/husky/)）在 `pnpm install` 后�
 
 提交说明示例：`feat: add STT ticket endpoint`、`fix(billing): debit race`。
 
-GitHub Actions 见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)：在 PR / push 上跑 lint（阻塞）、单测与 E2E；CI 失败**不阻塞** Cloudflare 部署（部署流水线仍是独立的 `deploy-cloudflare.yml`）。
+GitHub Actions 见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)：在 PR / push 上跑 lint（阻塞）、单测与 E2E。CI 失败**不阻塞**生产部署；推到 `main` 会另外跑 [`.github/workflows/deploy-ecs.yml`](.github/workflows/deploy-ecs.yml)，把 Node 独立包发到阿里云 ECS。
 
 E2E 会设置 `SKIP_OPENNEXT_CLOUDFLARE_DEV=1`，跳过 `next.config.ts` 里较慢的 Cloudflare 开发初始化。
 
@@ -125,50 +125,30 @@ npx wrangler secret put DASHSCOPE_API_KEY
 npx wrangler secret put STT_TICKET_SECRET
 ```
 
-## 部署到 Cloudflare Workers
+## 部署到阿里云 ECS
 
-本项目通过 [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare) 部署到 Cloudflare Workers。
+生产环境是 Node 独立服务，不是 Cloudflare Worker。推送到 `main`（或在 GitHub 上手动触发 **Deploy ECS**）会：
 
-**线上地址**
+1. `pnpm build:node` 打出 Next.js standalone
+2. 打成 `.deploy/standalone`（含静态资源、`public`、MySQL 迁移）
+3. rsync 到 ECS 的应用目录，用机器上的环境文件跑尚未记录的 `migrations/mysql/*.sql`
+4. `systemctl restart` 重启服务
 
-- 自定义域名：<https://inkara.zhouhua.site>
-- workers.dev：<https://inkara.zhouhuasjtu.workers.dev>（部分网络可能较慢或超时）
+GitHub 仓库密钥：
 
-> 说明：客户端 embedding 依赖的 ONNX Runtime asyncify WASM 超过 Workers 单文件 25 MiB 限制，构建后会剔除该静态资源，运行时从 jsDelivr CDN 加载（见 `scripts/strip-cf-oversized-assets.mjs`）。
+| 密钥           | 说明                                                         |
+| -------------- | ------------------------------------------------------------ |
+| `ECS_HOST`     | 服务器地址                                                   |
+| `ECS_USER`     | SSH 用户                                                     |
+| `ECS_SSH_KEY`  | 私钥（可用真实换行，或一行里的 `\n`）                        |
+| `ECS_PORT`     | 可选，默认 22                                                |
+| `ECS_APP_DIR`  | 可选，默认 `/opt/inkara`                                     |
+| `ECS_ENV_FILE` | 可选，默认 `/etc/inkara.env`（在应用目录外，不会被同步删掉） |
+| `ECS_SERVICE`  | 可选，默认 `inkara`                                          |
 
-### 本地预览（Workers 运行时）
+服务器上需要 Node 22、`sudo systemctl` 免密，以及 `/etc/inkara.env`（含 `DATABASE_URL` 和模型、登录相关变量）。发布先同步到临时目录，迁移成功后再替换 `/opt/inkara` 并重启；重启失败会退回上一版。第一次部署如果还没有 systemd 单元，流水线会写一份并 enable。
 
-```bash
-# 确保 .env.local 或 .dev.vars 中已配置 MODEL_*（preview 会按生产环境加载）
-pnpm preview
-```
-
-### 本机直接发布
-
-```bash
-npx wrangler login
-pnpm run deploy
-```
-
-生产环境已配置 Worker Secrets：`MODEL_API_KEY` / `MODEL_BASE_URL` / `MODEL_NAME`，以及自定义域名 `inkara.zhouhua.site`。更新密钥：
-
-```bash
-printf '%s' '新值' | npx wrangler secret put MODEL_API_KEY
-```
-
-### GitHub 自动部署
-
-Worker 已上线；若要推 `main` 自动构建，在 Dashboard 连接仓库即可（不会覆盖已绑域名与 Secrets）：
-
-1. [inkara → Settings → Builds](https://dash.cloudflare.com/cfea794e1892010a07baac1bfd95fa22/workers/services/view/inkara/production/settings) → **Connect** GitHub 仓库 `zhouhua/inkara`
-2. Worker 名称须为 `inkara`（与 [`wrangler.jsonc`](wrangler.jsonc) 中 `name` 一致）
-3. 构建配置建议：
-   - **Build command**：`npx opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs`
-   - **Deploy command**：`npx opennextjs-cloudflare deploy`
-   - **Root directory**：仓库根目录
-   - **Production branch**：`main`
-
-本地日常开发仍用 `pnpm dev`。
+Cloudflare Worker 仍可用本机命令发布：`pnpm deploy:cloudflare`。
 
 ## 测试
 
@@ -178,7 +158,7 @@ pnpm test:e2e      # Playwright：主路径 E2E（stub 外部 API）
 pnpm test:all      # 上述两者
 ```
 
-GitHub Actions 有独立 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)（`lint` + unit + e2e）。**CI 失败不会挡住** Cloudflare 部署（[`deploy-cloudflare.yml`](.github/workflows/deploy-cloudflare.yml) 仍独立运行）。
+GitHub Actions 有独立 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)（`lint` + unit + e2e）。**CI 失败不会挡住** ECS 部署（[`deploy-ecs.yml`](.github/workflows/deploy-ecs.yml) 仍独立运行）。
 
 ## 使用
 
