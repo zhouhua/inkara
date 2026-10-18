@@ -1,17 +1,7 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { auth } from "@/lib/auth";
-import type { D1Database } from "@/lib/db-server";
+import { resolveD1 } from "@/lib/subject";
 
 export const runtime = "nodejs";
-
-async function resolveDb(): Promise<D1Database | null> {
-  try {
-    const { env } = await getCloudflareContext({ async: true });
-    return (env as { DB?: D1Database }).DB ?? null;
-  } catch {
-    return null;
-  }
-}
 
 /** Mark active subscription to cancel at period end (no immediate cut-off). */
 export async function POST() {
@@ -19,7 +9,7 @@ export async function POST() {
   if (!session?.user?.id) {
     return Response.json({ error: "login_required" }, { status: 401 });
   }
-  const db = await resolveDb();
+  const db = await resolveD1();
   if (!db) {
     return Response.json({ error: "billing_unavailable" }, { status: 503 });
   }
@@ -35,7 +25,6 @@ export async function POST() {
 
   return Response.json({
     ok: true,
-    // D1 meta may expose changes; keep soft response
     canceled: true,
     meta: result,
   });

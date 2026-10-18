@@ -1,38 +1,31 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { auth } from "@/lib/auth";
 import {
   consumeOne,
   ensureDailyGrant,
+  refundOne,
   shanghaiDate,
   shanghaiDayEndIso,
 } from "@/lib/billing/ledger";
 import { createD1BillingStore } from "@/lib/billing/d1-store";
 import { mergeAnonDailyGrants } from "@/lib/billing/merge-anon";
 import { mergeAnonContent } from "@/lib/content/merge-anon";
-import type { D1Database } from "@/lib/db-server";
-import { readAnonSubject } from "@/lib/subject";
+import { readAnonSubject, resolveD1 } from "@/lib/subject";
+import type { ConsumeVia } from "@/lib/billing/schema";
+import type { BillingStore } from "@/lib/billing/ledger";
 
 export { readAnonSubject };
 
-async function resolveDb(): Promise<D1Database | null> {
-  try {
-    const { env } = await getCloudflareContext({ async: true });
-    return (env as { DB?: D1Database }).DB ?? null;
-  } catch {
-    return null;
-  }
-}
-
 export type BillingGateResult =
-  | { ok: true; subjectId: string }
+  | { ok: true; subjectId: string; via: ConsumeVia; store: BillingStore }
   | { ok: false; status: number; error: string; message?: string };
 
 /**
  * Resolve billed subject and consume one ask credit.
  * Logged-in users merge anon daily grants + content first.
+ * Caller should refund via `refundAskConsume` if the ask fails after charging.
  */
 export async function gateAskConsume(req: Request): Promise<BillingGateResult> {
-  const db = await resolveDb();
+  const db = await resolveD1();
   if (!db) {
     return {
       ok: false,
@@ -75,5 +68,15 @@ export async function gateAskConsume(req: Request): Promise<BillingGateResult> {
   if (!result.ok) {
     return { ok: false, status: 429, error: "quota_exhausted" };
   }
-  return { ok: true, subjectId };
+  return { ok: true, subjectId, via: result.via, store };
+}
+
+export async function refundAskConsume(
+  gate: Extract<BillingGateResult, { ok: true }>,
+): Promise<void> {
+  try {
+    await refundOne(gate.store, gate.subjectId, gate.via);
+  } catch (err) {
+    console.error("Ask refund failed:", err);
+  }
 }

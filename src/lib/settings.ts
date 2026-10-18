@@ -7,12 +7,13 @@ import {
   whenDbReady,
   writeSettingsRaw,
 } from "./db";
-import { defaultLocale, type Locale, locales } from "./i18n";
 import {
-  defaultPaperStyle,
-  isPaperStyleId,
-  type PaperStyleId,
-} from "./paper";
+  defaultLocale,
+  localeFromAcceptLanguage,
+  type Locale,
+  locales,
+} from "./i18n";
+import { defaultPaperStyle, isPaperStyleId, type PaperStyleId } from "./paper";
 
 export type InputMode = "pen" | "type";
 export type SubmitMode = "manual" | "auto";
@@ -77,7 +78,7 @@ export function idleMsFor(settings: AppSettings): number {
 }
 
 export function normalizeSettings(
-  parsed: Partial<AppSettings> & { idleMs?: number } | null | undefined,
+  parsed: (Partial<AppSettings> & { idleMs?: number }) | null | undefined,
 ): AppSettings {
   if (!parsed || typeof parsed !== "object") {
     return { ...defaultSettings };
@@ -179,7 +180,17 @@ export async function hydrateSettings(): Promise<AppSettings> {
   if (pendingSave) {
     await flushPendingSettings();
   } else if (!isSettingsDirty()) {
+    const raw = getCachedSettingsRaw();
     syncCacheFromDb();
+    if (raw == null && typeof navigator !== "undefined") {
+      const header = navigator.languages?.length
+        ? navigator.languages.join(",")
+        : navigator.language;
+      settingsCache = {
+        ...settingsCache,
+        locale: localeFromAcceptLanguage(header),
+      };
+    }
   }
   return { ...settingsCache };
 }

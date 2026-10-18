@@ -17,7 +17,10 @@ export function truncateEmbedText(text: string): string {
   return text.trim().slice(0, EMBEDDING_TEXT_MAX);
 }
 
-export function cosineSimilarity(a: ArrayLike<number>, b: ArrayLike<number>): number {
+export function cosineSimilarity(
+  a: ArrayLike<number>,
+  b: ArrayLike<number>,
+): number {
   const n = Math.min(a.length, b.length);
   if (n === 0) return 0;
   let dot = 0;
@@ -68,7 +71,47 @@ export async function embedOne(
   return first;
 }
 
+function dashscopeEmbeddingAi(): WorkersAi | null {
+  const apiKey =
+    process.env.DASHSCOPE_API_KEY?.trim() || process.env.MODEL_API_KEY?.trim();
+  if (!apiKey) return null;
+  const base = (
+    process.env.DASHSCOPE_BASE_URL?.trim() ||
+    process.env.MODEL_BASE_URL?.trim() ||
+    "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  ).replace(/\/$/, "");
+  return {
+    async run(_model, inputs) {
+      const res = await fetch(`${base}/embeddings`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: process.env.EMBEDDING_MODEL?.trim() || "text-embedding-v3",
+          input: inputs.text,
+          dimensions: EMBEDDING_DIMS,
+          encoding_format: "float",
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(`embeddings ${res.status}`);
+      }
+      const body = (await res.json()) as {
+        data?: { embedding?: number[]; index?: number }[];
+      };
+      const rows = body.data ?? [];
+      rows.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+      return rows.map((row) => row.embedding ?? []);
+    },
+  };
+}
+
 export async function resolveAi(): Promise<WorkersAi | null> {
+  if (process.env.DATABASE_URL?.trim()) {
+    return dashscopeEmbeddingAi();
+  }
   try {
     const { getCloudflareContext } = await import("@opennextjs/cloudflare");
     const { env } = await getCloudflareContext({ async: true });

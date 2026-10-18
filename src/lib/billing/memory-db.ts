@@ -69,23 +69,42 @@ export function createMemoryBillingStore(opts?: {
       return usage.get(usageKey(userId, period)) ?? 0;
     },
 
-    async incrementUsage(userId, period) {
+    async tryIncrementUsageUnderCap(userId, period, softCap) {
       const k = usageKey(userId, period);
-      usage.set(k, (usage.get(k) ?? 0) + 1);
+      const cur = usage.get(k) ?? 0;
+      if (cur >= softCap) return false;
+      usage.set(k, cur + 1);
+      return true;
+    },
+
+    async decrementUsage(userId, period) {
+      const k = usageKey(userId, period);
+      const cur = usage.get(k) ?? 0;
+      usage.set(k, Math.max(0, cur - 1));
     },
 
     async sumRemaining(subjectId, kind, at) {
       return lots
-        .filter((l) => l.subjectId === subjectId && l.kind === kind && isUsable(l, at))
+        .filter(
+          (l) =>
+            l.subjectId === subjectId && l.kind === kind && isUsable(l, at),
+        )
         .reduce((s, l) => s + l.remaining, 0);
     },
 
     async debitFifo(subjectId, kind, amount, at) {
       const candidates = lots
-        .filter((l) => l.subjectId === subjectId && l.kind === kind && isUsable(l, at))
+        .filter(
+          (l) =>
+            l.subjectId === subjectId && l.kind === kind && isUsable(l, at),
+        )
         .sort((a, b) => {
-          const ae = a.expiresAt ? new Date(a.expiresAt).getTime() : Number.POSITIVE_INFINITY;
-          const be = b.expiresAt ? new Date(b.expiresAt).getTime() : Number.POSITIVE_INFINITY;
+          const ae = a.expiresAt
+            ? new Date(a.expiresAt).getTime()
+            : Number.POSITIVE_INFINITY;
+          const be = b.expiresAt
+            ? new Date(b.expiresAt).getTime()
+            : Number.POSITIVE_INFINITY;
           if (ae !== be) return ae - be;
           return a.createdAt.localeCompare(b.createdAt);
         });
@@ -94,10 +113,24 @@ export function createMemoryBillingStore(opts?: {
       for (const lot of candidates) {
         if (need <= 0) break;
         const take = Math.min(lot.remaining, need);
+        if (lot.remaining < take) return false;
         lot.remaining -= take;
         need -= take;
       }
       return need === 0;
+    },
+
+    async creditOne(subjectId, kind) {
+      lots.push({
+        id: id("lot"),
+        subjectId,
+        kind,
+        amount: 1,
+        remaining: 1,
+        grantDate: null,
+        expiresAt: null,
+        createdAt: new Date().toISOString(),
+      });
     },
 
     async hasGoodwillGrant(userId, period) {
@@ -105,7 +138,9 @@ export function createMemoryBillingStore(opts?: {
     },
 
     async grantGoodwill(userId, period, amount) {
-      goodwill.add(usageKey(userId, period));
+      const k = usageKey(userId, period);
+      if (goodwill.has(k)) return false;
+      goodwill.add(k);
       lots.push({
         id: id("lot"),
         subjectId: userId,
@@ -116,6 +151,7 @@ export function createMemoryBillingStore(opts?: {
         expiresAt: null,
         createdAt: new Date(Date.now() + seq++).toISOString(),
       });
+      return true;
     },
 
     async recordLedger() {

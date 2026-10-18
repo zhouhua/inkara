@@ -14,6 +14,7 @@ describe("mock payment provider", () => {
       returnUrl: "https://inkara.example/?billing=return",
     });
     expect(created.payUrl).toContain("/api/billing/mock-pay?orderId=ord_1");
+    expect(created.payUrl).toContain("&token=");
     expect(created.mode).toBe("redirect");
 
     const raw = JSON.stringify({

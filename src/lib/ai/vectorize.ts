@@ -18,7 +18,9 @@ export type VectorizeMatch = {
 };
 
 export type VectorizeIndex = {
-  upsert: (vectors: VectorizeVector[]) => Promise<{ mutationId?: string } | void>;
+  upsert: (
+    vectors: VectorizeVector[],
+  ) => Promise<{ mutationId?: string } | void>;
   query: (
     vector: number[] | Float32Array,
     options?: {
@@ -34,6 +36,10 @@ export type VectorizeIndex = {
 };
 
 export async function resolveVectorize(): Promise<VectorizeIndex | null> {
+  if (process.env.DATABASE_URL?.trim()) {
+    const { createMysqlVectorize } = await import("@/lib/ai/mysql-vectorize");
+    return createMysqlVectorize();
+  }
   try {
     const { getCloudflareContext } = await import("@opennextjs/cloudflare");
     const { env } = await getCloudflareContext({ async: true });
@@ -94,7 +100,9 @@ export async function reNamespacePageVectors(
     if (!existing?.length) continue;
     await index.upsert(
       existing
-        .filter((v) => v.values && toNumberArray(v.values).length === VECTOR_DIMS)
+        .filter(
+          (v) => v.values && toNumberArray(v.values).length === VECTOR_DIMS,
+        )
         .map((v) => ({
           id: v.id,
           values: toNumberArray(v.values),

@@ -16,7 +16,7 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
   },
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3000",
+    command: "pnpm exec next dev --hostname 127.0.0.1 --port 3000",
     url: "http://127.0.0.1:3000",
     // Always start a dedicated server for E2E so Cloudflare init cannot hang the suite.
     reuseExistingServer: false,
@@ -24,6 +24,7 @@ export default defineConfig({
     env: {
       ...process.env,
       SKIP_OPENNEXT_CLOUDFLARE_DEV: "1",
+      AUTH_SECRET: process.env.AUTH_SECRET || "ci-e2e-auth-secret",
     },
   },
 });

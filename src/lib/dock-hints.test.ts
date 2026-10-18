@@ -24,7 +24,7 @@ describe("firstRunDockHint", () => {
         submitMode: "auto",
         inputMode: "pen",
         contentPresent: false,
-      })
+      }),
     ).toBeTruthy();
     expect(
       firstRunDockHint({
@@ -32,7 +32,7 @@ describe("firstRunDockHint", () => {
         submitMode: "manual",
         inputMode: "type",
         contentPresent: false,
-      })
+      }),
     ).toContain("·");
   });
 });
@@ -68,7 +68,7 @@ describe("collectDockHints", () => {
     });
     expect(hints).toContainEqual({
       id: "voice-listening",
-      text: "正在听…",
+      text: "在听，慢慢说就好",
       kind: "wait",
     });
   });
@@ -80,7 +80,7 @@ describe("collectDockHints", () => {
     });
     expect(hints).toContainEqual({
       id: "voice-warn",
-      text: "还剩约 1 分钟",
+      text: "还剩大约 1 分钟",
       kind: "wait",
     });
   });
@@ -92,7 +92,7 @@ describe("collectDockHints", () => {
     });
     expect(hints).toContainEqual({
       id: "voice-polishing",
-      text: "整理中…",
+      text: "正在把句子理顺",
       kind: "wait",
     });
   });

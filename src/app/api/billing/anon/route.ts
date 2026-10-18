@@ -1,42 +1,39 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
-import type { D1Database } from "@/lib/db-server";
-
-const COOKIE = "inkara_anon";
-const MAX_AGE = 60 * 60 * 24 * 365;
+import {
+  buildAnonSetCookie,
+  newAnonSubjectId,
+  readAnonSubjectFromRequest,
+  resolveAnonCookieSecret,
+  wantSecureCookie,
+} from "@/lib/anon-cookie";
+import { resolveD1 } from "@/lib/subject";
 
 export const runtime = "nodejs";
 
-async function resolveDb(): Promise<D1Database | null> {
-  try {
-    const { env } = await getCloudflareContext({ async: true });
-    return (env as { DB?: D1Database }).DB ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function readAnon(req: Request): string | null {
-  const cookie = req.headers.get("cookie") ?? "";
-  const match = cookie.match(/(?:^|;\s*)inkara_anon=([^;]+)/);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
-}
-
-/** Issue or return anonymous subject id (httpOnly cookie). */
+/** Issue or return anonymous subject id (httpOnly signed cookie). */
 export async function POST(req: Request) {
-  const db = await resolveDb();
+  const secret = resolveAnonCookieSecret();
+  if (!secret) {
+    return Response.json(
+      { error: "auth_secret_missing", message: "AUTH_SECRET is required" },
+      { status: 503 },
+    );
+  }
+
+  const db = await resolveD1();
   if (!db) {
     return Response.json({ error: "billing_unavailable" }, { status: 503 });
   }
 
-  let subjectId = readAnon(req);
+  let subjectId = readAnonSubjectFromRequest(req, secret);
   const headers = new Headers({ "content-type": "application/json" });
   if (!subjectId) {
-    subjectId = `anon_${crypto.randomUUID()}`;
-    headers.append(
-      "set-cookie",
-      `${COOKIE}=${encodeURIComponent(subjectId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE}`,
-    );
+    subjectId = newAnonSubjectId();
   }
+  // Always refresh Set-Cookie so legacy unsigned cookies are replaced.
+  headers.append(
+    "set-cookie",
+    buildAnonSetCookie(subjectId, secret, { secure: wantSecureCookie(req) }),
+  );
 
   return new Response(JSON.stringify({ subjectId }), { status: 200, headers });
 }

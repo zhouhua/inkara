@@ -1,10 +1,18 @@
 import type { NextConfig } from "next";
 
+const nodeStandalone = process.env.INKARA_NODE_STANDALONE === "1";
+
 const nextConfig: NextConfig = {
+  // ECS / Node production. Cloudflare deploy leaves this unset.
+  ...(nodeStandalone ? { output: "standalone" as const } : {}),
   // Cursor/browser tooling may hit the app via 127.0.0.1 while the
   // page Origin is localhost (or the reverse); allow HMR either way.
   allowedDevOrigins: ["127.0.0.1", "localhost"],
-  serverExternalPackages: ["@huggingface/transformers", "onnxruntime-node"],
+  serverExternalPackages: [
+    "@huggingface/transformers",
+    "onnxruntime-node",
+    "mysql2",
+  ],
   // Next 16 defaults to Turbopack; keep an empty turbopack block so a
   // webpack resolveAlias (for non-Turbopack builds) does not fail the build.
   turbopack: {},

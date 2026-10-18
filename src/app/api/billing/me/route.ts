@@ -1,4 +1,3 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { auth } from "@/lib/auth";
 import {
   ensureDailyGrant,
@@ -9,22 +8,12 @@ import {
 import { createD1BillingStore } from "@/lib/billing/d1-store";
 import { mergeAnonDailyGrants } from "@/lib/billing/merge-anon";
 import { mergeAnonContent } from "@/lib/content/merge-anon";
-import type { D1Database } from "@/lib/db-server";
-import { readAnonSubject } from "@/lib/subject";
+import { readAnonSubject, resolveD1 } from "@/lib/subject";
 
 export const runtime = "nodejs";
 
-async function resolveDb(): Promise<D1Database | null> {
-  try {
-    const { env } = await getCloudflareContext({ async: true });
-    return (env as { DB?: D1Database }).DB ?? null;
-  } catch {
-    return null;
-  }
-}
-
 export async function GET(req: Request) {
-  const db = await resolveDb();
+  const db = await resolveD1();
   if (!db) {
     return Response.json(
       { error: "billing_unavailable", message: "D1 binding missing" },

@@ -1,9 +1,5 @@
 import type { D1Database } from "@/lib/db-server";
-import {
-  addMonthsIso,
-  type FulfillStore,
-  type OrderRow,
-} from "./fulfill";
+import { addMonthsIso, type FulfillStore, type OrderRow } from "./fulfill";
 
 function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID()}`;
@@ -45,7 +41,7 @@ export function createD1FulfillStore(db: D1Database): FulfillStore {
       if (!existing) return "missing";
       if (existing.status === "paid") return "already_paid";
 
-      await db
+      const result = await db
         .prepare(
           `UPDATE orders
            SET status = 'paid',
@@ -57,15 +53,8 @@ export function createD1FulfillStore(db: D1Database): FulfillStore {
         .bind(providerTradeNo, raw, orderId)
         .run();
 
-      const after = await db
-        .prepare(`SELECT status FROM orders WHERE id = ?`)
-        .bind(orderId)
-        .first<{ status: string }>();
-      if (after?.status === "paid") {
-        // Could have been raced; if we didn't update pending, treat as already paid
-        const changed = existing.status === "pending";
-        return changed ? "updated" : "already_paid";
-      }
+      // Only the winner of concurrent webhooks may fulfill credits.
+      if ((result.meta?.changes ?? 0) === 1) return "updated";
       return "already_paid";
     },
 
@@ -98,7 +87,8 @@ export function createD1FulfillStore(db: D1Database): FulfillStore {
 
       if (active) {
         const endMs = new Date(active.current_period_end).getTime();
-        const base = endMs > at.getTime() ? new Date(active.current_period_end) : at;
+        const base =
+          endMs > at.getTime() ? new Date(active.current_period_end) : at;
         const nextEnd = addMonthsIso(base, months);
         await db
           .prepare(

@@ -10,7 +10,7 @@ export function buildSttPolishSystemPrompt(locale: Locale): string {
     ].join(" ");
   }
   return [
-    "你整理一段语音识别结果，供用户写在纸上。",
+    "你整理一段语音识别结果，供用户写入笔记。",
     "去掉语气词与口头禅，略补标点。",
     "不改变原意，不新增内容，不回答问题。",
     "只输出整理后的正文。",
@@ -20,7 +20,10 @@ export function buildSttPolishSystemPrompt(locale: Locale): string {
 export function sanitizePolishOutput(raw: string): string {
   let s = raw.trim();
   if (s.startsWith("```")) {
-    s = s.replace(/^```[a-zA-Z]*\n?/, "").replace(/```$/, "").trim();
+    s = s
+      .replace(/^```[a-zA-Z]*\n?/, "")
+      .replace(/```$/, "")
+      .trim();
   }
   if (
     (s.startsWith('"') && s.endsWith('"')) ||

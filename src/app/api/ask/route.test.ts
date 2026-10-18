@@ -23,7 +23,13 @@ vi.mock("@/lib/llm", async () => {
 });
 
 vi.mock("@/lib/billing/gate", () => ({
-  gateAskConsume: vi.fn(async () => ({ ok: true, subjectId: "test-subject" })),
+  gateAskConsume: vi.fn(async () => ({
+    ok: true,
+    subjectId: "test-subject",
+    via: "daily_grant",
+    store: {},
+  })),
+  refundAskConsume: vi.fn(async () => {}),
 }));
 
 import { POST } from "@/app/api/ask/route";
@@ -65,7 +71,12 @@ beforeEach(() => {
   streamText.mockReset();
   createLlmModel.mockClear();
   gateAskConsumeMock.mockReset();
-  gateAskConsumeMock.mockResolvedValue({ ok: true, subjectId: "test-subject" });
+  gateAskConsumeMock.mockResolvedValue({
+    ok: true,
+    subjectId: "test-subject",
+    via: "daily_grant",
+    store: {} as never,
+  });
   process.env.MODEL_API_KEY = "env-key";
   process.env.MODEL_BASE_URL = "https://example.com/v1";
   process.env.MODEL_NAME = "test-model";
@@ -74,7 +85,7 @@ beforeEach(() => {
 describe("POST /api/ask", () => {
   it("returns 400 for invalid json", async () => {
     const res = await POST(
-      new Request("http://localhost/api/ask", { method: "POST", body: "{" })
+      new Request("http://localhost/api/ask", { method: "POST", body: "{" }),
     );
     expect(res.status).toBe(400);
   });

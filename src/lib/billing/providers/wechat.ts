@@ -30,7 +30,9 @@ export function createWechatPayProvider(env: WechatPayEnv): PaymentProvider {
   return {
     id: "wechat",
 
-    async createPayment(input: CreatePaymentInput): Promise<CreatePaymentResult> {
+    async createPayment(
+      input: CreatePaymentInput,
+    ): Promise<CreatePaymentResult> {
       const path = "/v3/pay/transactions/native";
       const bodyObj = {
         appid: env.appId,
@@ -59,11 +61,15 @@ export function createWechatPayProvider(env: WechatPayEnv): PaymentProvider {
       });
       const text = await res.text();
       if (!res.ok) {
-        throw new Error(`wechat native failed: ${res.status} ${text.slice(0, 300)}`);
+        throw new Error(
+          `wechat native failed: ${res.status} ${text.slice(0, 300)}`,
+        );
       }
       const json = JSON.parse(text) as { code_url?: string };
       if (!json.code_url) {
-        throw new Error(`wechat native missing code_url: ${text.slice(0, 200)}`);
+        throw new Error(
+          `wechat native missing code_url: ${text.slice(0, 200)}`,
+        );
       }
       return { codeUrl: json.code_url, mode: "qrcode" };
     },
@@ -79,7 +85,12 @@ export function createWechatPayProvider(env: WechatPayEnv): PaymentProvider {
         return { ok: false, error: "missing_wechat_headers" };
       }
 
-      if (env.platformPublicKey) {
+      if (!env.platformPublicKey) {
+        // Production must verify; local/dev may skip when key unset.
+        if (process.env.NODE_ENV === "production") {
+          return { ok: false, error: "missing_wechat_platform_key" };
+        }
+      } else {
         const message = `${timestamp}\n${nonce}\n${rawBody}\n`;
         const ok = rsaVerifySha256(message, signature, env.platformPublicKey);
         if (!ok) return { ok: false, error: "bad_wechat_signature" };

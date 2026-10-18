@@ -4,27 +4,44 @@ import {
   type ActiveSubscription,
   type BalanceSnapshot,
   type ConsumeResult,
+  type ConsumeVia,
   type CreditKind,
 } from "./schema";
 
 export type BillingStore = {
-  ensureDailyGrant(subjectId: string, grantDate: string, expiresAt: string): Promise<void>;
-  getActiveSubscription(userId: string, at: Date): Promise<ActiveSubscription | null>;
-  getUsage(userId: string, period: string): Promise<number>;
-  incrementUsage(userId: string, period: string): Promise<void>;
-  sumRemaining(
+  ensureDailyGrant(
     subjectId: string,
-    kind: CreditKind,
+    grantDate: string,
+    expiresAt: string,
+  ): Promise<void>;
+  getActiveSubscription(
+    userId: string,
     at: Date,
-  ): Promise<number>;
+  ): Promise<ActiveSubscription | null>;
+  getUsage(userId: string, period: string): Promise<number>;
+  /** Atomically increment usage only when count < softCap. Returns false if at/over cap. */
+  tryIncrementUsageUnderCap(
+    userId: string,
+    period: string,
+    softCap: number,
+  ): Promise<boolean>;
+  decrementUsage(userId: string, period: string): Promise<void>;
+  sumRemaining(subjectId: string, kind: CreditKind, at: Date): Promise<number>;
   debitFifo(
     subjectId: string,
     kind: CreditKind,
     amount: number,
     at: Date,
   ): Promise<boolean>;
+  /** Credit back one unit (refund after failed ask). */
+  creditOne(subjectId: string, kind: CreditKind, at: Date): Promise<void>;
   hasGoodwillGrant(userId: string, period: string): Promise<boolean>;
-  grantGoodwill(userId: string, period: string, amount: number): Promise<void>;
+  /** Returns true only when this call newly granted the period lot. */
+  grantGoodwill(
+    userId: string,
+    period: string,
+    amount: number,
+  ): Promise<boolean>;
   recordLedger(entry: {
     subjectId: string;
     delta: number;
@@ -104,9 +121,13 @@ export async function consumeOne(
   const sub = await store.getActiveSubscription(subjectId, at);
 
   if (sub) {
-    const usage = await store.getUsage(subjectId, period);
-    if (usage < SUBSCRIPTION_SOFT_CAP) {
-      await store.incrementUsage(subjectId, period);
+    if (
+      await store.tryIncrementUsageUnderCap(
+        subjectId,
+        period,
+        SUBSCRIPTION_SOFT_CAP,
+      )
+    ) {
       await store.recordLedger({
         subjectId,
         delta: -1,
@@ -127,9 +148,27 @@ export async function consumeOne(
     }
 
     if (!(await store.hasGoodwillGrant(subjectId, period))) {
-      await store.grantGoodwill(subjectId, period, GOODWILL_AMOUNT);
+      const granted = await store.grantGoodwill(
+        subjectId,
+        period,
+        GOODWILL_AMOUNT,
+      );
+      if (!granted && !(await store.hasGoodwillGrant(subjectId, period))) {
+        return { ok: false, code: "quota_exhausted" };
+      }
       const ok = await store.debitFifo(subjectId, "goodwill", 1, at);
       if (!ok) return { ok: false, code: "quota_exhausted" };
+      await store.recordLedger({
+        subjectId,
+        delta: -1,
+        reason: "consume",
+        via: "goodwill",
+      });
+      return { ok: true, via: "goodwill" };
+    }
+
+    // Already granted this period — try remaining goodwill lots
+    if (await store.debitFifo(subjectId, "goodwill", 1, at)) {
       await store.recordLedger({
         subjectId,
         delta: -1,
@@ -163,4 +202,36 @@ export async function consumeOne(
   }
 
   return { ok: false, code: "quota_exhausted" };
+}
+
+/** Reverse a successful consumeOne after ask/stream failure. */
+export async function refundOne(
+  store: BillingStore,
+  subjectId: string,
+  via: ConsumeVia,
+  at: Date = new Date(),
+): Promise<void> {
+  if (via === "subscription") {
+    await store.decrementUsage(subjectId, shanghaiPeriod(at));
+    await store.recordLedger({
+      subjectId,
+      delta: 1,
+      reason: "refund",
+      via,
+    });
+    return;
+  }
+  const kind =
+    via === "purchased"
+      ? "purchased"
+      : via === "goodwill"
+        ? "goodwill"
+        : "daily_grant";
+  await store.creditOne(subjectId, kind, at);
+  await store.recordLedger({
+    subjectId,
+    delta: 1,
+    reason: "refund",
+    via,
+  });
 }

@@ -6,6 +6,10 @@ function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
+function changesOf(result: { meta?: { changes?: number } }): number {
+  return result.meta?.changes ?? 0;
+}
+
 type LotRow = {
   id: string;
   remaining: number;
@@ -69,13 +73,26 @@ export function createD1BillingStore(db: D1Database): BillingStore {
       return row?.count ?? 0;
     },
 
-    async incrementUsage(userId, period) {
-      await db
+    async tryIncrementUsageUnderCap(userId, period, softCap) {
+      const result = await db
         .prepare(
           `INSERT INTO subscription_usage (user_id, period_yyyy_mm, count)
            VALUES (?, ?, 1)
            ON CONFLICT(user_id, period_yyyy_mm)
-           DO UPDATE SET count = count + 1`,
+           DO UPDATE SET count = count + 1
+           WHERE subscription_usage.count < ?`,
+        )
+        .bind(userId, period, softCap)
+        .run();
+      return changesOf(result) > 0;
+    },
+
+    async decrementUsage(userId, period) {
+      await db
+        .prepare(
+          `UPDATE subscription_usage
+           SET count = MAX(0, count - 1)
+           WHERE user_id = ? AND period_yyyy_mm = ?`,
         )
         .bind(userId, period)
         .run();
@@ -117,15 +134,29 @@ export function createD1BillingStore(db: D1Database): BillingStore {
       for (const lot of usable) {
         if (need <= 0) break;
         const take = Math.min(lot.remaining, need);
-        await db
+        const result = await db
           .prepare(
             `UPDATE credit_lots SET remaining = remaining - ? WHERE id = ? AND remaining >= ?`,
           )
           .bind(take, lot.id, take)
           .run();
+        if (changesOf(result) !== 1) {
+          return false;
+        }
         need -= take;
       }
       return need === 0;
+    },
+
+    async creditOne(subjectId, kind) {
+      await db
+        .prepare(
+          `INSERT INTO credit_lots
+             (id, subject_id, kind, amount, remaining, grant_date, expires_at, created_at)
+           VALUES (?, ?, ?, 1, 1, NULL, NULL, datetime('now'))`,
+        )
+        .bind(newId("lot"), subjectId, kind)
+        .run();
     },
 
     async hasGoodwillGrant(userId, period) {
@@ -140,13 +171,14 @@ export function createD1BillingStore(db: D1Database): BillingStore {
     },
 
     async grantGoodwill(userId, period, amount) {
-      await db
+      const grant = await db
         .prepare(
           `INSERT OR IGNORE INTO goodwill_grants (user_id, period_yyyy_mm, granted_at)
            VALUES (?, ?, datetime('now'))`,
         )
         .bind(userId, period)
         .run();
+      if (changesOf(grant) !== 1) return false;
       await db
         .prepare(
           `INSERT INTO credit_lots
@@ -155,6 +187,7 @@ export function createD1BillingStore(db: D1Database): BillingStore {
         )
         .bind(newId("lot"), userId, amount, amount)
         .run();
+      return true;
     },
 
     async recordLedger(entry) {

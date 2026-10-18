@@ -1,7 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/subject", () => ({
+  resolveSubject: vi.fn(async () => ({
+    ok: true,
+    subjectId: "anon_test",
+    userId: null,
+    anonId: "anon_test",
+  })),
+}));
+
 import { POST } from "@/app/api/stt/ticket/route";
 import { verifySttTicket } from "@/lib/stt-ticket";
+import { resolveSubject } from "@/lib/subject";
 
+const resolveSubjectMock = vi.mocked(resolveSubject);
 const envSnapshot = { ...process.env };
 
 beforeEach(() => {
@@ -11,6 +23,12 @@ beforeEach(() => {
   delete process.env.AUTH_SECRET;
   delete process.env.MODEL_API_KEY;
   delete process.env.NEXT_PUBLIC_STT_WS_URL;
+  resolveSubjectMock.mockResolvedValue({
+    ok: true,
+    subjectId: "anon_test",
+    userId: null,
+    anonId: "anon_test",
+  });
 });
 
 afterEach(() => {
@@ -18,10 +36,22 @@ afterEach(() => {
 });
 
 function postTicket() {
-  return POST(new Request("http://localhost/api/stt/ticket", { method: "POST" }));
+  return POST(
+    new Request("http://localhost/api/stt/ticket", { method: "POST" }),
+  );
 }
 
 describe("POST /api/stt/ticket", () => {
+  it("returns 401 when subject missing", async () => {
+    resolveSubjectMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+      error: "anon_required",
+    });
+    const res = await postTicket();
+    expect(res.status).toBe(401);
+  });
+
   it("returns 503 when ticket secret is missing", async () => {
     delete process.env.STT_TICKET_SECRET;
     delete process.env.AUTH_SECRET;
@@ -39,7 +69,9 @@ describe("POST /api/stt/ticket", () => {
 
     const res = await postTicket();
     expect(res.status).toBe(503);
-    await expect(res.json()).resolves.toMatchObject({ error: "missing_asr_key" });
+    await expect(res.json()).resolves.toMatchObject({
+      error: "missing_asr_key",
+    });
   });
 
   it("accepts MODEL_API_KEY when DASHSCOPE_API_KEY is unset", async () => {

@@ -1,10 +1,8 @@
 import { createAlipayProvider, loadAlipayEnvFromProcess } from "./alipay";
 import { createMockPaymentProvider } from "./mock";
+import { mockPayAllowed } from "./mock-token";
 import type { PaymentChannel, PaymentProvider } from "./types";
-import {
-  createWechatPayProvider,
-  loadWechatPayEnvFromProcess,
-} from "./wechat";
+import { createWechatPayProvider, loadWechatPayEnvFromProcess } from "./wechat";
 
 export function isPaymentChannel(value: string): value is PaymentChannel {
   return value === "wechat" || value === "alipay" || value === "mock";
@@ -16,7 +14,11 @@ export function isPaymentChannel(value: string): value is PaymentChannel {
  */
 export function getPaymentProvider(channel: PaymentChannel): PaymentProvider {
   if (channel === "mock") {
-    assertMockAllowed();
+    if (!mockPayAllowed()) {
+      throw new Error(
+        "mock pay disabled outside development (set PAY_ALLOW_MOCK=1)",
+      );
+    }
     return createMockPaymentProvider({
       baseUrl: process.env.NEXT_PUBLIC_APP_URL,
     });
@@ -26,6 +28,11 @@ export function getPaymentProvider(channel: PaymentChannel): PaymentProvider {
     if (!env) {
       throw new Error(
         "WeChat Pay env missing: WECHAT_PAY_APP_ID / MCH_ID / SERIAL / PRIVATE_KEY / API_V3_KEY",
+      );
+    }
+    if (process.env.NODE_ENV === "production" && !env.platformPublicKey) {
+      throw new Error(
+        "WECHAT_PAY_PLATFORM_PUBLIC_KEY is required in production",
       );
     }
     return createWechatPayProvider(env);
@@ -40,13 +47,4 @@ export function getPaymentProvider(channel: PaymentChannel): PaymentProvider {
     return createAlipayProvider(env);
   }
   throw new Error(`unsupported channel: ${channel}`);
-}
-
-function assertMockAllowed() {
-  const allow =
-    process.env.PAY_ALLOW_MOCK === "1" ||
-    process.env.NODE_ENV === "development";
-  if (!allow) {
-    throw new Error("mock pay disabled outside development (set PAY_ALLOW_MOCK=1)");
-  }
 }

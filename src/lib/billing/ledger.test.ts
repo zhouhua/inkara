@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ensureDailyGrant, consumeOne, getBalance } from "./ledger";
-import {
-  createMemoryBillingStore,
-  type MemoryBillingStore,
-} from "./memory-db";
+import { ensureDailyGrant, consumeOne, getBalance, refundOne } from "./ledger";
+import { createMemoryBillingStore, type MemoryBillingStore } from "./memory-db";
 
 const SUBJECT = "user_test_1";
 const PERIOD = "2026-09";
@@ -86,5 +83,14 @@ describe("billing ledger", () => {
     await ensureDailyGrant(store, SUBJECT, now);
     const bal = await getBalance(store, SUBJECT, now);
     expect(bal.daily).toBe(2);
+  });
+
+  it("refundOne restores a daily_grant consume", async () => {
+    await ensureDailyGrant(store, SUBJECT, now);
+    const r = await consumeOne(store, SUBJECT, now);
+    expect(r).toMatchObject({ ok: true, via: "daily_grant" });
+    expect((await getBalance(store, SUBJECT, now)).daily).toBe(1);
+    await refundOne(store, SUBJECT, "daily_grant", now);
+    expect((await getBalance(store, SUBJECT, now)).daily).toBe(2);
   });
 });

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
+    "build:node": "SKIP_OPENNEXT_CLOUDFLARE_DEV=1 INKARA_NODE_STANDALONE=1 next build --webpack",
     "start": "next start",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -35,11 +36,13 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.66",
+    "@auth/core": "0.41.3",
     "@hugeicons/core-free-icons": "^4.3.5",
     "@hugeicons/react": "^1.1.10",
     "@opennextjs/cloudflare": "^1.20.9",
     "ai": "^7.0.133",
     "motion": "^13.5.1",
+    "mysql2": "^3.24.6",
     "next": "16.3.5",
     "next-auth": "^5.0.0-beta.32",
     "react": "19.2.8",

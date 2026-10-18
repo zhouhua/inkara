@@ -8,8 +8,9 @@ import {
   type MemoryTurn,
   type RecallCitePageInput,
 } from "@/lib/prompts";
+import { t } from "@/lib/i18n";
 import { askObjectSchema } from "@/lib/ask-schema";
-import { gateAskConsume } from "@/lib/billing/gate";
+import { gateAskConsume, refundAskConsume } from "@/lib/billing/gate";
 import { createLlmModel, resolveLlmCredentials } from "@/lib/llm";
 import { APICallError, Output, streamText } from "ai";
 
@@ -50,10 +51,7 @@ type StreamEvent =
 
 type UserContent =
   | string
-  | Array<
-      | { type: "text"; text: string }
-      | { type: "image"; image: string }
-    >;
+  | Array<{ type: "text"; text: string } | { type: "image"; image: string }>;
 
 export async function POST(req: Request) {
   let body: AskBody;
@@ -83,7 +81,7 @@ export async function POST(req: Request) {
             typeof p === "object" &&
             typeof p.transcription === "string" &&
             typeof p.reply === "string" &&
-            typeof p.createdAt === "number"
+            typeof p.createdAt === "number",
         )
         .slice(0, 3)
     : [];
@@ -101,15 +99,8 @@ export async function POST(req: Request) {
     return jsonError({ error: "missing_image" }, 400);
   }
 
-  const gate = await gateAskConsume(req);
-  if (!gate.ok) {
-    return jsonError(
-      { error: gate.error, message: gate.message },
-      gate.status,
-    );
-  }
-
   // Platform credentials only — ignore body BYOK (ALLOW_BYOK=1 in development only).
+  // Resolve before charging so misconfig does not burn quota.
   const allowByok =
     process.env.NODE_ENV === "development" && process.env.ALLOW_BYOK === "1";
   const resolved = resolveLlmCredentials(
@@ -122,14 +113,15 @@ export async function POST(req: Request) {
       : {},
   );
   if (!resolved.ok) {
-    return jsonError(
-      { error: resolved.error, message: resolved.message },
-      500
-    );
+    return jsonError({ error: resolved.error, message: resolved.message }, 500);
   }
 
-  const quietFallback =
-    locale === "zh" ? "纸面一时无言。" : "The page stayed quiet.";
+  const gate = await gateAskConsume(req);
+  if (!gate.ok) {
+    return jsonError({ error: gate.error, message: gate.message }, gate.status);
+  }
+
+  const quietFallback = t(locale, "pageQuiet");
 
   let systemContent: string;
   let userContent: UserContent;
@@ -168,7 +160,7 @@ export async function POST(req: Request) {
     async start(controller) {
       const send = (event: StreamEvent) => {
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
+          encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
         );
       };
 
@@ -176,6 +168,7 @@ export async function POST(req: Request) {
       let finalTranscription = seedTranscription;
       let finalReply = "";
       let emittedReply = "";
+      let settled = false;
 
       try {
         const result = streamText({
@@ -264,15 +257,25 @@ export async function POST(req: Request) {
           intent,
           recallQuery,
         });
+        settled = true;
         controller.close();
       } catch (error) {
         console.error("Ask stream failed:", error);
+        await refundAskConsume(gate);
         if (APICallError.isInstance(error)) {
           const status = error.statusCode;
           if (status === 401 || status === 403) {
-            send({ type: "error", error: "unauthorized", message: "unauthorized" });
+            send({
+              type: "error",
+              error: "unauthorized",
+              message: "unauthorized",
+            });
           } else {
-            send({ type: "error", error: "upstream_error", message: "upstream" });
+            send({
+              type: "error",
+              error: "upstream_error",
+              message: "upstream",
+            });
           }
         } else {
           send({
@@ -281,7 +284,12 @@ export async function POST(req: Request) {
             message: error instanceof Error ? error.message : "unknown",
           });
         }
+        settled = true;
         controller.close();
+      } finally {
+        if (!settled) {
+          await refundAskConsume(gate);
+        }
       }
     },
   });
@@ -295,9 +303,6 @@ export async function POST(req: Request) {
   });
 }
 
-function jsonError(
-  body: { error: string; message?: string },
-  status: number
-) {
+function jsonError(body: { error: string; message?: string }, status: number) {
   return Response.json(body, { status });
 }

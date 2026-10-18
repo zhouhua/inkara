@@ -6,6 +6,8 @@ import {
   Noto_Sans_SC,
 } from "next/font/google";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
+import { t } from "@/lib/i18n";
+import { requestLocale } from "@/lib/request-locale";
 import "./globals.css";
 
 const uiLatin = Atkinson_Hyperlegible({
@@ -33,21 +35,25 @@ const handEn = Alex_Brush({
   weight: "400",
 });
 
-export const metadata: Metadata = {
-  title: "墨语 inkara",
-  description: "用鼠标或手写笔书写，纸会喝掉墨迹并回答你。",
-  applicationName: "墨语",
-  manifest: "/manifest.webmanifest",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
-    title: "墨语",
-  },
-  icons: {
-    icon: [{ url: "/icons/icon-192.svg", type: "image/svg+xml" }],
-    apple: [{ url: "/icons/icon-192.svg" }],
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await requestLocale();
+  const title = `${t(locale, "brand")} ${t(locale, "brandEn")}`;
+  return {
+    title,
+    description: t(locale, "metaDescription"),
+    applicationName: t(locale, "brand"),
+    manifest: "/manifest.webmanifest",
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: "default",
+      title: t(locale, "brand"),
+    },
+    icons: {
+      icon: [{ url: "/icons/icon-192.svg", type: "image/svg+xml" }],
+      apple: [{ url: "/icons/icon-192.svg" }],
+    },
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: "#faf9f6",
@@ -57,10 +63,11 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const locale = await requestLocale();
   return (
     <html
-      lang="zh-CN"
+      lang={locale === "zh" ? "zh-CN" : "en"}
       className={`${uiLatin.variable} ${uiZh.variable} ${handZh.variable} ${handEn.variable} h-full antialiased`}
     >
       <body className="min-h-full">

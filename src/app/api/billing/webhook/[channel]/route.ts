@@ -1,22 +1,9 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createD1FulfillStore } from "@/lib/billing/d1-fulfill";
 import { fulfillOrder } from "@/lib/billing/fulfill";
-import {
-  getPaymentProvider,
-  isPaymentChannel,
-} from "@/lib/billing/providers";
-import type { D1Database } from "@/lib/db-server";
+import { getPaymentProvider, isPaymentChannel } from "@/lib/billing/providers";
+import { resolveD1 } from "@/lib/subject";
 
 export const runtime = "nodejs";
-
-async function resolveDb(): Promise<D1Database | null> {
-  try {
-    const { env } = await getCloudflareContext({ async: true });
-    return (env as { DB?: D1Database }).DB ?? null;
-  } catch {
-    return null;
-  }
-}
 
 type Ctx = { params: Promise<{ channel: string }> };
 
@@ -26,7 +13,7 @@ export async function POST(req: Request, ctx: Ctx) {
     return new Response("invalid_channel", { status: 400 });
   }
 
-  const db = await resolveDb();
+  const db = await resolveD1();
   if (!db) {
     return new Response("billing_unavailable", { status: 503 });
   }

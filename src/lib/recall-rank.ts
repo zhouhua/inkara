@@ -1,4 +1,3 @@
-import { pageEmbedText } from "@/lib/embeddings";
 import type { MemoryPage } from "@/lib/memory";
 
 export type RecallRankCandidate = {
@@ -26,7 +25,7 @@ export async function rankRecallCandidates(
     baseUrl?: string;
     model?: string;
   },
-  init?: { signal?: AbortSignal }
+  init?: { signal?: AbortSignal },
 ): Promise<RecallRankResult> {
   const res = await fetch("/api/recall-rank", {
     method: "POST",
@@ -41,10 +40,13 @@ export async function rankRecallCandidates(
   };
 
   if (!res.ok) {
-    throw Object.assign(new Error(data.message || data.error || "rank_failed"), {
-      error: data.error || "rank_failed",
-      message: data.message,
-    });
+    throw Object.assign(
+      new Error(data.message || data.error || "rank_failed"),
+      {
+        error: data.error || "rank_failed",
+        message: data.message,
+      },
+    );
   }
 
   const rankedIds = Array.isArray(data.rankedIds)
@@ -58,7 +60,7 @@ export function toRankCandidates(pages: MemoryPage[]): RecallRankCandidate[] {
   return pages.map((p) => ({
     id: p.id,
     createdAt: p.createdAt,
-    transcription: pageEmbedText(p.transcription, "", 280),
-    reply: pageEmbedText(p.reply, "", 280),
+    transcription: p.transcription.slice(0, 280),
+    reply: p.reply.slice(0, 280),
   }));
 }

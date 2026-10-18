@@ -15,7 +15,7 @@ async function blockEmbeddingNetwork(page: Page) {
     /huggingface\.co|hf-mirror\.com|jsdelivr\.net|onnxruntime|cdn\.jsdelivr/i,
     async (route) => {
       await route.abort();
-    }
+    },
   );
 }
 
@@ -133,7 +133,7 @@ test("typed ask shows thinking then completes", async ({ page }) => {
   await switchToTypeMode(page);
 
   const askWait = page.waitForRequest(
-    (req) => req.url().includes("/api/ask") && req.method() === "POST"
+    (req) => req.url().includes("/api/ask") && req.method() === "POST",
   );
   await typeAndSubmit(page, "今天心情不错");
   await askWait;
@@ -155,13 +155,15 @@ test("recall path reaches recalling or miss state", async ({ page }) => {
   await switchToTypeMode(page);
 
   const askWait = page.waitForRequest(
-    (req) => req.url().includes("/api/ask") && req.method() === "POST"
+    (req) => req.url().includes("/api/ask") && req.method() === "POST",
   );
   await typeAndSubmit(page, "找失眠那页");
   await askWait;
 
   await expect(
-    page.getByText(/旧页浮起|没有找到那一页|思考中|字迹浮现|去设定|重试/)
+    page.getByText(
+      /正在笔记里找|这次没找到|在看你写的|正在写回复|打开设置|再试一次/,
+    ),
   ).toBeVisible({ timeout: 45_000 });
 });
 

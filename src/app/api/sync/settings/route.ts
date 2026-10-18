@@ -1,5 +1,5 @@
 import { createD1ContentStore } from "@/lib/content/d1-store";
-import { defaultSettings, normalizeSettings } from "@/lib/settings";
+import { normalizeSettings } from "@/lib/settings";
 import { resolveD1, resolveSubject } from "@/lib/subject";
 
 export const runtime = "nodejs";
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   const store = createD1ContentStore(db);
   const row = await store.getSettings(subject.subjectId);
   return Response.json({
-    settings: row ? normalizeSettings(row) : defaultSettings,
+    settings: row ? normalizeSettings(row) : null,
   });
 }
 
@@ -38,8 +38,8 @@ export async function PUT(req: Request) {
     return Response.json({ error: "invalid_json" }, { status: 400 });
   }
   const settings = normalizeSettings(
-    (body as { settings?: Parameters<typeof normalizeSettings>[0] })?.settings ??
-      (body as Parameters<typeof normalizeSettings>[0]),
+    (body as { settings?: Parameters<typeof normalizeSettings>[0] })
+      ?.settings ?? (body as Parameters<typeof normalizeSettings>[0]),
   );
   const db = await resolveD1();
   if (!db) {

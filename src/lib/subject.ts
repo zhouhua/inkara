@@ -1,28 +1,30 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { auth } from "@/lib/auth";
 import { mergeAnonDailyGrants } from "@/lib/billing/merge-anon";
 import { createD1BillingStore } from "@/lib/billing/d1-store";
 import { shanghaiDate, shanghaiDayEndIso } from "@/lib/billing/ledger";
 import { mergeAnonContent } from "@/lib/content/merge-anon";
-import type { D1Database } from "@/lib/db-server";
+import {
+  readAnonSubjectFromRequest,
+  resolveAnonCookieSecret,
+} from "@/lib/anon-cookie";
+import { resolveServerDb, type D1Database } from "@/lib/db-server";
 
+/** @deprecated use readAnonSubjectFromRequest — kept name for call sites */
 export function readAnonSubject(req: Request): string | null {
-  const cookie = req.headers.get("cookie") ?? "";
-  const match = cookie.match(/(?:^|;\s*)inkara_anon=([^;]+)/);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
+  return readAnonSubjectFromRequest(req, resolveAnonCookieSecret());
 }
 
 export async function resolveD1(): Promise<D1Database | null> {
-  try {
-    const { env } = await getCloudflareContext({ async: true });
-    return (env as { DB?: D1Database }).DB ?? null;
-  } catch {
-    return null;
-  }
+  return resolveServerDb();
 }
 
 export type SubjectResult =
-  | { ok: true; subjectId: string; userId: string | null; anonId: string | null }
+  | {
+      ok: true;
+      subjectId: string;
+      userId: string | null;
+      anonId: string | null;
+    }
   | { ok: false; status: number; error: string; message?: string };
 
 /**
@@ -35,7 +37,7 @@ export async function resolveSubject(req: Request): Promise<SubjectResult> {
       ok: false,
       status: 503,
       error: "db_unavailable",
-      message: "D1 binding missing",
+      message: "Database unavailable",
     };
   }
 

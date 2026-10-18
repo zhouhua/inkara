@@ -1,23 +1,12 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { auth } from "@/lib/auth";
-import { CATALOG, isSkuId } from "@/lib/billing/catalog";
-import {
-  getPaymentProvider,
-  isPaymentChannel,
-} from "@/lib/billing/providers";
+import { CATALOG, isSkuId, skuLabelKey } from "@/lib/billing/catalog";
+import { getPaymentProvider, isPaymentChannel } from "@/lib/billing/providers";
 import type { PaymentChannel } from "@/lib/billing/providers/types";
-import type { D1Database } from "@/lib/db-server";
+import { t } from "@/lib/i18n";
+import { requestLocale } from "@/lib/request-locale";
+import { resolveD1 } from "@/lib/subject";
 
 export const runtime = "nodejs";
-
-async function resolveDb(): Promise<D1Database | null> {
-  try {
-    const { env } = await getCloudflareContext({ async: true });
-    return (env as { DB?: D1Database }).DB ?? null;
-  } catch {
-    return null;
-  }
-}
 
 function appOrigin(req: Request): string {
   const envOrigin = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
@@ -31,7 +20,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "login_required" }, { status: 401 });
   }
 
-  const db = await resolveDb();
+  const db = await resolveD1();
   if (!db) {
     return Response.json({ error: "billing_unavailable" }, { status: 503 });
   }
@@ -73,10 +62,9 @@ export async function POST(req: Request) {
 
   try {
     const provider = getPaymentProvider(channel);
-    const title =
-      item.kind === "pack"
-        ? `墨语积分包 ${"credits" in item ? item.credits : ""}`
-        : `墨语会员 ${sku}`;
+    const locale = await requestLocale();
+    const label = t(locale, skuLabelKey(sku));
+    const title = `${t(locale, "brand")} · ${label}`;
     const payment = await provider.createPayment({
       orderId,
       amountFen: item.priceFen,
@@ -113,6 +101,9 @@ export async function POST(req: Request) {
       .bind(orderId)
       .run();
     const message = err instanceof Error ? err.message : "checkout_failed";
-    return Response.json({ error: "checkout_failed", message }, { status: 502 });
+    return Response.json(
+      { error: "checkout_failed", message },
+      { status: 502 },
+    );
   }
 }

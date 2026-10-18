@@ -38,7 +38,7 @@ export async function POST(req: Request) {
   if (!query || candidates.length === 0) {
     return Response.json(
       { error: "missing_input", message: "query and candidates required" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -46,19 +46,19 @@ export async function POST(req: Request) {
   if (!resolved.ok) {
     return Response.json(
       { error: resolved.error, message: resolved.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
   const system =
     locale === "zh"
       ? [
-          "你是日记旧页排序助手。根据用户的查找意图，对候选页按相关度从高到低排序。",
+          "你是笔记搜索排序助手。根据用户的查找意图，对候选笔记按相关度从高到低排序。",
           "只使用给定候选；禁止编造 id；每个 id 最多出现一次。",
           "若有一页明显最匹配，confidence 为 high；若多页接近或不确定，为 low。",
         ].join("\n")
       : [
-          "You rank diary pages for a recall request. Order candidates by relevance, best first.",
+          "You rank notes for a search. Order candidates by relevance, best first.",
           "Use only the given candidates; never invent ids; each id at most once.",
           'If one page clearly wins, confidence is "high"; if several are close or unsure, "low".',
         ].join("\n");
@@ -102,12 +102,12 @@ export async function POST(req: Request) {
       if (status === 401 || status === 403) {
         return Response.json(
           { error: "unauthorized", message: "unauthorized" },
-          { status: 401 }
+          { status: 401 },
         );
       }
       return Response.json(
         { error: "upstream_error", message: "upstream" },
-        { status: 502 }
+        { status: 502 },
       );
     }
     return Response.json(
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
         error: "request_failed",
         message: error instanceof Error ? error.message : "unknown",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 

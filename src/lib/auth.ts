@@ -1,9 +1,10 @@
 import NextAuth from "next-auth";
 import Resend from "next-auth/providers/resend";
 import type { Adapter } from "@auth/core/adapters";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createInkAuthAdapter } from "@/lib/auth-adapter";
-import type { D1Database } from "@/lib/db-server";
+import { resolveServerDb } from "@/lib/db-server";
+import { t } from "@/lib/i18n";
+import { requestLocale } from "@/lib/request-locale";
 
 /**
  * Lazy D1 adapter: resolves Cloudflare env per call so NextAuth config stays sync.
@@ -13,9 +14,8 @@ function lazyInkAuthAdapter(): Adapter {
     get(_target, prop) {
       if (typeof prop === "symbol" || prop === "then") return undefined;
       return async (...args: unknown[]) => {
-        const { env } = await getCloudflareContext({ async: true });
-        const db = (env as { DB: D1Database }).DB;
-        if (!db) throw new Error("D1 binding DB is missing");
+        const db = await resolveServerDb();
+        if (!db) throw new Error("Database unavailable");
         const adapter = createInkAuthAdapter(db) as Record<
           string,
           ((...a: unknown[]) => unknown) | undefined
@@ -26,6 +26,24 @@ function lazyInkAuthAdapter(): Adapter {
       };
     },
   });
+}
+
+async function emailSubject() {
+  try {
+    return t(await requestLocale(), "emailSubject");
+  } catch {
+    return t("zh", "emailSubject");
+  }
+}
+
+async function emailHtml(url: string) {
+  let lead = t("zh", "emailLead");
+  try {
+    lead = t(await requestLocale(), "emailLead");
+  } catch {
+    /* keep Chinese */
+  }
+  return `<p>${lead}</p><p><a href="${url}">${url}</a></p>`;
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -52,8 +70,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           body: JSON.stringify({
             from: provider.from,
             to: [identifier],
-            subject: "登录墨语 · inkara",
-            html: `<p>点击链接登录墨语：</p><p><a href="${url}">${url}</a></p>`,
+            subject: await emailSubject(),
+            html: await emailHtml(url),
           }),
         });
         if (!res.ok) {

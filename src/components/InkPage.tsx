@@ -30,6 +30,7 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { VoiceMicButton } from "@/components/VoiceMicButton";
 import { askPageStream } from "@/lib/ask-stream";
 import { resolvePaperError, type PaperErrorAction } from "@/lib/ask-errors";
+import { compressInkDataUrl } from "@/lib/compress-ink-image";
 import { hydrateDb, whenDbReady } from "@/lib/db";
 import { collectDockHints } from "@/lib/dock-hints";
 import {
@@ -37,7 +38,7 @@ import {
   type EmbeddingLoadState,
 } from "@/lib/embeddings";
 import { exportPaperPng } from "@/lib/export-page";
-import { t, type MessageKey } from "@/lib/i18n";
+import { t, writeLocaleCookie, type MessageKey } from "@/lib/i18n";
 import {
   charRevealDelay,
   drawInkChar,
@@ -262,6 +263,7 @@ export function InkPage() {
 
   useEffect(() => {
     document.documentElement.lang = settings.locale === "zh" ? "zh-CN" : "en";
+    writeLocaleCookie(settings.locale);
   }, [settings.locale]);
 
   useEffect(() => {
@@ -1266,8 +1268,8 @@ export function InkPage() {
     setStatusExtra(null);
     recallingRef.current = false;
 
-    // Pen mode needs a vision snapshot; type mode sends typedText only — no fake paint.
-    const image = inputMode === "pen" ? ink.toDataURL("image/png") : "";
+    // Pen mode needs a vision snapshot; compress before upload. Type mode: text only.
+    const image = inputMode === "pen" ? compressInkDataUrl(ink) : "";
     lastCommitRef.current = { image, typedSnapshot };
 
     const fadePromise = (async () => {

@@ -1,7 +1,7 @@
 {
   "name": "墨语 inkara",
   "short_name": "墨语",
-  "description": "写下，停笔，纸会回答",
+  "description": "手写、打字或说话，记下一条笔记并得到回复，也能搜回以前写过的。",
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",

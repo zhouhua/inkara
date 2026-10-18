@@ -1,4 +1,5 @@
 import { mintSttTicket, resolveSttTicketSecret } from "@/lib/stt-ticket";
+import { resolveSubject } from "@/lib/subject";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,15 @@ function resolveSttWsUrl(): string | null {
   return null;
 }
 
-export async function POST(_req: Request) {
+export async function POST(req: Request) {
+  const subject = await resolveSubject(req);
+  if (!subject.ok) {
+    return Response.json(
+      { error: subject.error, message: subject.message },
+      { status: subject.status },
+    );
+  }
+
   const secret = resolveSttTicketSecret();
   if (!secret) {
     return Response.json({ error: "missing_ticket_secret" }, { status: 503 });
