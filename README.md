@@ -131,7 +131,7 @@ npx wrangler secret put STT_TICKET_SECRET
 
 1. `pnpm build:node` 打出 Next.js standalone
 2. 打成 `.deploy/standalone`（含静态资源、`public`、MySQL 迁移）
-3. rsync 到 ECS 的应用目录，用机器上的环境文件跑尚未记录的 `migrations/mysql/*.sql`
+3. 经 SSH 用 tar 同步到 ECS 的临时目录，用机器上的环境文件跑尚未记录的 `migrations/mysql/*.sql`
 4. `systemctl restart` 重启服务
 
 GitHub 仓库密钥：

@@ -31,12 +31,9 @@ target="${ECS_USER}@${ECS_HOST}"
 stage="${app_dir}.next"
 prev="${app_dir}.prev"
 
-"${ssh_base[@]}" "$target" "mkdir -p '$stage'"
+"${ssh_base[@]}" "$target" "rm -rf '$stage' && mkdir -p '$stage'"
 
-rsync -az --delete \
-  -e "ssh -i $key -p $port -o StrictHostKeyChecking=accept-new" \
-  .deploy/standalone/ \
-  "${target}:${stage}/"
+tar -C .deploy/standalone -czf - . | "${ssh_base[@]}" "$target" "tar -xzf - -C '$stage'"
 
 "${ssh_base[@]}" "$target" "APP_DIR='$app_dir' STAGE='$stage' PREV='$prev' ENV_FILE='$env_file' SERVICE='$service' bash -s" <<'EOF'
 set -euo pipefail
