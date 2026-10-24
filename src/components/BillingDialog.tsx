@@ -20,23 +20,65 @@ type Props = {
   onClose: () => void;
 };
 
-const SKUS: {
+const PLANS: {
   id: SkuId;
   price: string;
   labelKey:
-    | "billingSku_sub_month"
-    | "billingSku_sub_quarter"
-    | "billingSku_sub_year"
-    | "billingSku_pack_50"
-    | "billingSku_pack_150"
-    | "billingSku_pack_500";
+    "billingSku_sub_month" | "billingSku_sub_quarter" | "billingSku_sub_year";
+  termKey: "billingTermMonth" | "billingTermQuarter" | "billingTermYear";
+  asideKey: "billingAsideQuarter" | "billingAsideYear" | null;
+  featured?: boolean;
 }[] = [
-  { id: "sub_month", price: "¥19", labelKey: "billingSku_sub_month" },
-  { id: "sub_quarter", price: "¥49", labelKey: "billingSku_sub_quarter" },
-  { id: "sub_year", price: "¥189", labelKey: "billingSku_sub_year" },
-  { id: "pack_50", price: "¥9.9", labelKey: "billingSku_pack_50" },
-  { id: "pack_150", price: "¥25", labelKey: "billingSku_pack_150" },
-  { id: "pack_500", price: "¥59", labelKey: "billingSku_pack_500" },
+  {
+    id: "sub_month",
+    price: "19",
+    labelKey: "billingSku_sub_month",
+    termKey: "billingTermMonth",
+    asideKey: null,
+  },
+  {
+    id: "sub_quarter",
+    price: "49",
+    labelKey: "billingSku_sub_quarter",
+    termKey: "billingTermQuarter",
+    asideKey: "billingAsideQuarter",
+  },
+  {
+    id: "sub_year",
+    price: "189",
+    labelKey: "billingSku_sub_year",
+    termKey: "billingTermYear",
+    asideKey: "billingAsideYear",
+    featured: true,
+  },
+];
+
+const PACKS: {
+  id: SkuId;
+  price: string;
+  labelKey:
+    "billingSku_pack_50" | "billingSku_pack_150" | "billingSku_pack_500";
+  asideKey:
+    "billingAsidePack50" | "billingAsidePack150" | "billingAsidePack500";
+}[] = [
+  {
+    id: "pack_50",
+    price: "9.9",
+    labelKey: "billingSku_pack_50",
+    asideKey: "billingAsidePack50",
+  },
+  {
+    id: "pack_150",
+    price: "25",
+    labelKey: "billingSku_pack_150",
+    asideKey: "billingAsidePack150",
+  },
+  {
+    id: "pack_500",
+    price: "59",
+    labelKey: "billingSku_pack_500",
+    asideKey: "billingAsidePack500",
+  },
 ];
 
 const ALLOW_MOCK =
@@ -76,6 +118,15 @@ export function BillingDialog({ open, locale, onClose }: Props) {
     setMe(data);
     return data;
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -197,6 +248,14 @@ export function BillingDialog({ open, locale, onClose }: Props) {
 
   const loggedIn = me && me.anonymous === false;
 
+  const onPick = (sku: SkuId) => {
+    if (!loggedIn) {
+      window.location.assign("/api/auth/signin");
+      return;
+    }
+    void onBuy(sku);
+  };
+
   return (
     <div className="billing-layer" role="presentation">
       <div className="billing-backdrop" onClick={onClose} role="presentation" />
@@ -206,48 +265,169 @@ export function BillingDialog({ open, locale, onClose }: Props) {
         aria-modal="true"
         aria-labelledby={titleId}
       >
-        <header className="billing-header">
-          <h3 id={titleId}>{t(locale, "billingTitle")}</h3>
-          <button type="button" className="text-action" onClick={onClose}>
-            {t(locale, "close")}
-          </button>
-        </header>
-
-        <p className="billing-lead">{t(locale, "billingLead")}</p>
+        <div className="billing-mast">
+          <header className="billing-header">
+            <div>
+              <p className="billing-kicker">{t(locale, "brandEn")}</p>
+              <h3 id={titleId}>{t(locale, "billingTitle")}</h3>
+            </div>
+            <button type="button" className="text-action" onClick={onClose}>
+              {t(locale, "close")}
+            </button>
+          </header>
+          <p className="billing-lead">{t(locale, "billingLead")}</p>
+        </div>
 
         {loading ? (
-          <p className="billing-status">{t(locale, "billingLoading")}</p>
+          <div className="billing-slip">
+            <p className="billing-status">{t(locale, "billingLoading")}</p>
+          </div>
         ) : loggedIn ? (
-          <p className="billing-status">
-            {me?.email ? `${me.email} · ` : ""}
-            {t(locale, "billingCreditsLine")
-              .replace("{daily}", String(me?.credits?.daily ?? 0))
-              .replace("{purchased}", String(me?.credits?.purchased ?? 0))}
-            {me?.subscription?.active
-              ? ` · ${t(locale, "billingSubActive")}`
-              : ""}
-            {me?.subscription?.cancelAtPeriodEnd
-              ? ` · ${t(locale, "billingCancelAtEnd")}`
-              : ""}
-          </p>
+          <div className="billing-slip">
+            <p className="billing-status">
+              {me?.email ? `${me.email} · ` : ""}
+              {t(locale, "billingCreditsLine")
+                .replace("{daily}", String(me?.credits?.daily ?? 0))
+                .replace("{purchased}", String(me?.credits?.purchased ?? 0))}
+              {me?.subscription?.active
+                ? ` · ${t(locale, "billingSubActive")}`
+                : ""}
+              {me?.subscription?.cancelAtPeriodEnd
+                ? ` · ${t(locale, "billingCancelAtEnd")}`
+                : ""}
+            </p>
+          </div>
         ) : (
-          <p className="billing-status">{t(locale, "billingNeedLogin")}</p>
-        )}
-
-        {!loggedIn ? (
           // Auth.js entry is an API route, not an App Router page.
           // eslint-disable-next-line @next/next/no-html-link-for-pages -- /api/auth/signin
-          <a className="text-action billing-login" href="/api/auth/signin">
-            {t(locale, "billingSignIn")}
+          <a className="billing-slip is-login" href="/api/auth/signin">
+            <span className="billing-status">
+              {t(locale, "billingNeedLogin")}
+            </span>
+            <span className="billing-login">{t(locale, "billingSignIn")}</span>
           </a>
-        ) : null}
+        )}
 
-        {loggedIn ? (
+        {error ? <p className="billing-error">{error}</p> : null}
+
+        {qrCodeUrl ? (
+          <div className="billing-qr">
+            <p className="billing-status">{t(locale, "billingScanWechat")}</p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              className="billing-qr-img"
+              alt=""
+              width={200}
+              height={200}
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrCodeUrl)}`}
+            />
+            <p className="billing-status">{t(locale, "billingWaitingPay")}</p>
+            <button
+              type="button"
+              className="text-action"
+              onClick={() => {
+                setQrCodeUrl(null);
+                setPendingOrderId(null);
+              }}
+            >
+              {t(locale, "close")}
+            </button>
+          </div>
+        ) : (
+          <>
+            <section
+              className="billing-section"
+              aria-labelledby={`${titleId}-plans`}
+            >
+              <div className="billing-section-head">
+                <h4 id={`${titleId}-plans`}>
+                  {t(locale, "billingPlansLabel")}
+                </h4>
+                <p>{t(locale, "billingPlansNote")}</p>
+              </div>
+              <div className="billing-plans">
+                {PLANS.map((plan) => (
+                  <button
+                    key={plan.id}
+                    type="button"
+                    className={`billing-plan${plan.featured ? " is-featured" : ""}`}
+                    disabled={busySku !== null}
+                    onClick={() => onPick(plan.id)}
+                  >
+                    <span className="billing-plan-name">
+                      {t(locale, plan.labelKey)}
+                    </span>
+                    {plan.featured ? (
+                      <span className="billing-plan-mark" aria-hidden="true">
+                        {t(locale, "billingMark")}
+                      </span>
+                    ) : null}
+                    <span className="billing-plan-price">
+                      <span className="billing-yen">¥</span>
+                      {plan.price}
+                    </span>
+                    <span className="billing-plan-term">
+                      {t(locale, plan.termKey)}
+                    </span>
+                    <span className="billing-plan-aside">
+                      {plan.asideKey ? t(locale, plan.asideKey) : "\u00a0"}
+                    </span>
+                    <span
+                      className={`billing-plan-cta${plan.featured ? " is-primary" : ""}`}
+                    >
+                      {busySku === plan.id
+                        ? t(locale, "billingLoading")
+                        : plan.featured
+                          ? t(locale, "billingChooseYear")
+                          : t(locale, "billingChoosePlan")}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section
+              className="billing-section"
+              aria-labelledby={`${titleId}-packs`}
+            >
+              <div className="billing-section-head">
+                <h4 id={`${titleId}-packs`}>
+                  {t(locale, "billingPacksLabel")}
+                </h4>
+                <p>{t(locale, "billingPacksNote")}</p>
+              </div>
+              <div className="billing-packs" role="group">
+                {PACKS.map((pack) => (
+                  <button
+                    key={pack.id}
+                    type="button"
+                    className="billing-pack"
+                    disabled={busySku !== null}
+                    onClick={() => onPick(pack.id)}
+                  >
+                    <span className="billing-pack-name">
+                      {t(locale, pack.labelKey)}
+                    </span>
+                    <span className="billing-pack-price">¥{pack.price}</span>
+                    <span className="billing-pack-aside">
+                      {t(locale, pack.asideKey)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
+
+        {loggedIn && !qrCodeUrl ? (
           <div
             className="billing-channels"
             role="radiogroup"
             aria-label={t(locale, "billingPayChannel")}
           >
+            <span className="billing-channels-label">
+              {t(locale, "billingPayChannel")}
+            </span>
             <button
               type="button"
               role="radio"
@@ -279,52 +459,6 @@ export function BillingDialog({ open, locale, onClose }: Props) {
             ) : null}
           </div>
         ) : null}
-
-        {error ? <p className="billing-error">{error}</p> : null}
-
-        {qrCodeUrl ? (
-          <div className="billing-qr">
-            <p className="billing-status">{t(locale, "billingScanWechat")}</p>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              className="billing-qr-img"
-              alt=""
-              width={200}
-              height={200}
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrCodeUrl)}`}
-            />
-            <p className="billing-status">{t(locale, "billingWaitingPay")}</p>
-            <button
-              type="button"
-              className="text-action"
-              onClick={() => {
-                setQrCodeUrl(null);
-                setPendingOrderId(null);
-              }}
-            >
-              {t(locale, "close")}
-            </button>
-          </div>
-        ) : (
-          <ul className="billing-sku-list">
-            {SKUS.map((sku) => (
-              <li key={sku.id} className="billing-sku-row">
-                <span>{t(locale, sku.labelKey)}</span>
-                <span className="billing-sku-price">{sku.price}</span>
-                <button
-                  type="button"
-                  className="text-action"
-                  disabled={!loggedIn || busySku === sku.id}
-                  onClick={() => void onBuy(sku.id)}
-                >
-                  {busySku === sku.id
-                    ? t(locale, "billingLoading")
-                    : t(locale, "billingBuy")}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
 
         {loggedIn &&
         me?.subscription?.active &&
