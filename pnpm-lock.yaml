@@ -196,6 +196,9 @@ importers:
       next-auth:
         specifier: ^5.0.0-beta.32
         version: 5.0.0-beta.32(next@16.3.5(@babel/core@7.29.7(supports-color@10.2.2))(@playwright/test@1.64.0)(@types/node@20.19.43)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
+      perfect-freehand:
+        specifier: ^1.2.3
+        version: 1.2.3
       react:
         specifier: 19.2.8
         version: 19.2.8
@@ -4015,6 +4018,9 @@ packages:
   pathval@2.0.1:
     resolution: {integrity: sha512-//nshmD55c46FuFw26xV/xFAaB5HF9Xdap7HJBBnrKdAd6/GxDBaNA1870O79+9ueg61cZLSVc+OaFlfmObYVQ==}
     engines: {node: '>= 14.16'}
+
+  perfect-freehand@1.2.3:
+    resolution: {integrity: sha512-bHZSfqDHGNlPpgH2yxXgPHlQSPpEbo+qg7li0M78J9vNAi2yjwLeA4x79BEQhX44lEWpCLSFCeRZwpw0niiXPA==}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -8751,6 +8757,8 @@ snapshots:
   pathe@2.0.3: {}
 
   pathval@2.0.1: {}
+
+  perfect-freehand@1.2.3: {}
 
   picocolors@1.1.1: {}
 

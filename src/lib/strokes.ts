@@ -1,3 +1,5 @@
+import { getStroke } from "perfect-freehand";
+
 export type Point = {
   x: number;
   y: number;
@@ -9,6 +11,8 @@ export type Stroke = {
   points: Point[];
   color: string;
   erase: boolean;
+  /** When true, width follows velocity (mouse/touch). Pen uses real pressure. */
+  simulatePressure?: boolean;
 };
 
 type AnyPointer = {
@@ -20,7 +24,7 @@ type AnyPointer = {
 export function pointerToPoint(
   e: AnyPointer,
   rect: DOMRect,
-  dpr: number
+  dpr: number,
 ): Point {
   return {
     x: (e.clientX - rect.left) * dpr,
@@ -39,55 +43,13 @@ export function normalizePressure(raw: number): number {
   return 0.28 + t * 0.72;
 }
 
-export function drawStroke(
-  ctx: CanvasRenderingContext2D,
-  stroke: Stroke,
-  dpr: number,
-  alpha = 1
-) {
-  const pts = stroke.points;
-  if (pts.length === 0) return;
-
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  if (stroke.erase) {
-    ctx.globalCompositeOperation = "destination-out";
-    ctx.strokeStyle = "rgba(0,0,0,1)";
-  } else {
-    ctx.globalCompositeOperation = "source-over";
-    ctx.strokeStyle = stroke.color;
-  }
-
-  if (pts.length === 1) {
-    const p = pts[0];
-    const r = strokeWidth(p.pressure, dpr, stroke.erase) / 2;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = stroke.erase ? "rgba(0,0,0,1)" : stroke.color;
-    ctx.fill();
-    ctx.restore();
-    return;
-  }
-
-  ctx.beginPath();
-  ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) {
-    const prev = pts[i - 1];
-    const curr = pts[i];
-    const midX = (prev.x + curr.x) / 2;
-    const midY = (prev.y + curr.y) / 2;
-    ctx.lineWidth = strokeWidth(curr.pressure, dpr, stroke.erase);
-    ctx.quadraticCurveTo(prev.x, prev.y, midX, midY);
-  }
-  const last = pts[pts.length - 1];
-  ctx.lineTo(last.x, last.y);
-  ctx.stroke();
-  ctx.restore();
+/** Mid comfort stroke diameter in device pixels (legacy strokeWidth at p=0.5). */
+export function strokeSize(dpr: number, erase: boolean): number {
+  if (erase) return (18 + 0.5 * 22) * dpr;
+  return (2.4 + 0.5 * 3.2) * dpr;
 }
 
+/** @deprecated Prefer strokeSize + outline fill; kept for call sites / tests. */
 export function strokeWidth(pressure: number, dpr: number, erase: boolean) {
   const p = normalizePressure(pressure);
   if (erase) return (18 + p * 22) * dpr;
@@ -96,17 +58,157 @@ export function strokeWidth(pressure: number, dpr: number, erase: boolean) {
   return (base + p * span) * dpr;
 }
 
+const easeOutSine = (t: number) => Math.sin((t * Math.PI) / 2);
+
+/** Quickdraw / tldraw-style freehand options tuned for e-ink pen feel. */
+export function inkStrokeOptions(
+  dpr: number,
+  opts: {
+    erase?: boolean;
+    simulatePressure?: boolean;
+    last?: boolean;
+  } = {},
+) {
+  const erase = opts.erase ?? false;
+  const simulatePressure = opts.simulatePressure ?? true;
+  const last = opts.last ?? true;
+  const width = strokeSize(dpr, erase);
+
+  if (erase) {
+    return {
+      size: width,
+      thinning: 0.25,
+      smoothing: 0.55,
+      streamline: 0.55,
+      simulatePressure,
+      easing: easeOutSine,
+      last,
+    };
+  }
+
+  if (!simulatePressure) {
+    return {
+      size: width * 1.2,
+      thinning: 0.6,
+      smoothing: 0.6,
+      streamline: 0.6,
+      simulatePressure: false,
+      easing: easeOutSine,
+      last,
+    };
+  }
+
+  return {
+    size: width,
+    thinning: 0.5,
+    smoothing: 0.6,
+    streamline: 0.6,
+    simulatePressure: true,
+    easing: easeOutSine,
+    last,
+  };
+}
+
+/** Average midpoints into a smooth closed SVG path (perfect-freehand recipe). */
+export function getSvgPathFromStroke(points: number[][]): string {
+  if (points.length < 2) return "";
+
+  const max = points.length - 1;
+  const parts: (string | number)[] = ["M", points[0][0], points[0][1], "Q"];
+
+  for (let i = 1; i < max; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    parts.push(a[0], a[1], (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+  }
+
+  const last = points[max];
+  const first = points[0];
+  parts.push(
+    last[0],
+    last[1],
+    (last[0] + first[0]) / 2,
+    (last[1] + first[1]) / 2,
+    "Z",
+  );
+  return parts.join(" ");
+}
+
+export type DrawStrokeOptions = {
+  alpha?: number;
+  /** When false, streamline lags the tip slightly (live drawing). */
+  last?: boolean;
+};
+
+export function drawStroke(
+  ctx: CanvasRenderingContext2D,
+  stroke: Stroke,
+  dpr: number,
+  alphaOrOpts: number | DrawStrokeOptions = 1,
+) {
+  const pts = stroke.points;
+  if (pts.length === 0) return;
+
+  const alpha =
+    typeof alphaOrOpts === "number" ? alphaOrOpts : (alphaOrOpts.alpha ?? 1);
+  const last =
+    typeof alphaOrOpts === "number" ? true : (alphaOrOpts.last ?? true);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  if (stroke.erase) {
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillStyle = "rgba(0,0,0,1)";
+  } else {
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = stroke.color;
+  }
+
+  const input = pts.map(
+    (p) =>
+      [p.x, p.y, normalizePressure(p.pressure)] as [number, number, number],
+  );
+  const outline = getStroke(
+    input,
+    inkStrokeOptions(dpr, {
+      erase: stroke.erase,
+      simulatePressure: stroke.simulatePressure ?? true,
+      last,
+    }),
+  );
+
+  if (outline.length < 2) {
+    const p = pts[0];
+    const r = strokeSize(dpr, stroke.erase) / 4;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(0.5, r), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  const path = new Path2D(getSvgPathFromStroke(outline));
+  ctx.fill(path);
+  ctx.restore();
+}
+
 export function redrawAll(
   ctx: CanvasRenderingContext2D,
   strokes: Stroke[],
   width: number,
   height: number,
   dpr: number,
-  alpha = 1
+  alpha = 1,
+  /** While drawing, pass the active stroke so streamline can lag the tip. */
+  liveStroke: Stroke | null = null,
 ) {
   ctx.clearRect(0, 0, width, height);
   for (const s of strokes) {
-    drawStroke(ctx, s, dpr, alpha);
+    drawStroke(ctx, s, dpr, {
+      alpha,
+      last: liveStroke == null || s !== liveStroke,
+    });
   }
 }
 
@@ -114,7 +216,7 @@ export function redrawAll(
 export function wrapText(
   ctx: CanvasRenderingContext2D,
   text: string,
-  maxWidth: number
+  maxWidth: number,
 ): string[] {
   const paragraphs = text.split(/\n+/);
   const lines: string[] = [];

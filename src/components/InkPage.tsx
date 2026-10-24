@@ -93,7 +93,6 @@ import {
   pointerToPoint,
   redrawAll,
   wrapText,
-  type Point,
   type Stroke,
 } from "@/lib/strokes";
 import {
@@ -107,6 +106,10 @@ const REPLY_INK = "#2a3145";
 const DOUBLE_TAP_MS = 380;
 const DOUBLE_TAP_MAX_MOVE_CSS = 10;
 const DOUBLE_TAP_MAX_DURATION_MS = 250;
+/** iOS coalesced pointer samples are missing/unreliable (same caveat as tldraw). */
+const IS_IOS =
+  typeof navigator !== "undefined" &&
+  /iPad|iPhone|iPod/.test(navigator.userAgent);
 const VOICE_NOTE_MS = 2800;
 const VOICE_POLISH_TIMEOUT_MS = 20_000;
 
@@ -1577,6 +1580,8 @@ export function InkPage() {
       points: [pointerToPoint(e, rect, dprRef.current)],
       color: INK,
       erase: false,
+      // Pen: real pressure. Mouse/touch: velocity-simulated width.
+      simulatePressure: e.pointerType !== "pen",
     };
     currentRef.current = stroke;
     strokesRef.current = [...strokesRef.current, stroke];
@@ -1587,7 +1592,7 @@ export function InkPage() {
     lastTapArmedRef.current = false;
 
     const ctx = getInkCtx();
-    if (ctx) drawStroke(ctx, stroke, dprRef.current);
+    if (ctx) drawStroke(ctx, stroke, dprRef.current, { last: false });
     setPhase("writing");
     scheduleIdle();
   };
@@ -1599,15 +1604,31 @@ export function InkPage() {
     if (!stroke || !canvas || e.buttons === 0) return;
 
     const rect = canvas.getBoundingClientRect();
-    const point: Point = pointerToPoint(e, rect, dprRef.current);
-    stroke.points.push(point);
+    const native = e.nativeEvent;
+    // High-fidelity samples between frames (tldraw / Quickdraw).
+    const coalesced =
+      !IS_IOS && typeof native.getCoalescedEvents === "function"
+        ? native.getCoalescedEvents()
+        : null;
+    const samples = coalesced && coalesced.length > 0 ? coalesced : [native];
+    for (const sample of samples) {
+      stroke.points.push(pointerToPoint(sample, rect, dprRef.current));
+    }
 
     const ctx = getInkCtx();
     if (!ctx || stroke.points.length < 2) return;
 
     const ink = inkRef.current;
     if (!ink) return;
-    redrawAll(ctx, strokesRef.current, ink.width, ink.height, dprRef.current);
+    redrawAll(
+      ctx,
+      strokesRef.current,
+      ink.width,
+      ink.height,
+      dprRef.current,
+      1,
+      stroke,
+    );
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -1621,6 +1642,21 @@ export function InkPage() {
       inkRef.current?.releasePointerCapture(e.pointerId);
     } catch {
       /* ignore */
+    }
+
+    // Snap tip to the true last point (streamline settles with last: true).
+    if (stroke && stroke.points.length > 0) {
+      const ink = inkRef.current;
+      const ctx = getInkCtx();
+      if (ink && ctx) {
+        redrawAll(
+          ctx,
+          strokesRef.current,
+          ink.width,
+          ink.height,
+          dprRef.current,
+        );
+      }
     }
 
     if (down) {
