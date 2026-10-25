@@ -149,6 +149,22 @@ async function migrateLegacyIndexedDb(): Promise<{
   }
 }
 
+const HYDRATE_FETCH_MS = 8_000;
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  ms = HYDRATE_FETCH_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 export function hydrateDb(): Promise<void> {
   if (cache.hydrated) return Promise.resolve();
   if (hydratePromise) return hydratePromise;
@@ -162,7 +178,7 @@ export function hydrateDb(): Promise<void> {
 
     // Ensure anon cookie before sync
     try {
-      await fetch("/api/billing/anon", { method: "POST" });
+      await fetchWithTimeout("/api/billing/anon", { method: "POST" });
     } catch {
       /* continue */
     }
@@ -171,8 +187,8 @@ export function hydrateDb(): Promise<void> {
 
     try {
       const [settingsRes, pagesRes] = await Promise.all([
-        fetch("/api/sync/settings"),
-        fetch("/api/sync/pages"),
+        fetchWithTimeout("/api/sync/settings"),
+        fetchWithTimeout("/api/sync/pages"),
       ]);
       if (settingsRes.ok) {
         const data = (await settingsRes.json()) as { settings?: unknown };

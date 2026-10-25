@@ -1,23 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-
-async function unregisterServiceWorkers(page: Page) {
-  await page.addInitScript(() => {
-    void navigator.serviceWorker
-      ?.getRegistrations()
-      .then((regs) => Promise.all(regs.map((r) => r.unregister())))
-      .catch(() => undefined);
-  });
-}
-
-/** Keep hybrid recall lexical-only; do not download ONNX / Hub weights in E2E. */
-async function blockEmbeddingNetwork(page: Page) {
-  await page.route(
-    /huggingface\.co|hf-mirror\.com|jsdelivr\.net|onnxruntime|cdn\.jsdelivr/i,
-    async (route) => {
-      await route.abort();
-    },
-  );
-}
+import { preparePage, waitForAppReady } from "./helpers";
 
 function sseBody(events: Record<string, unknown>[]) {
   return events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
@@ -80,12 +62,14 @@ async function stubAskRecall(page: Page) {
       status: 200,
       contentType: "text/event-stream; charset=utf-8",
       body: sseBody([
-        { type: "meta", transcription: body.typedText || "找失眠那页" },
-        { type: "delta", text: "好，我去翻翻。" },
+        {
+          type: "meta",
+          transcription: body.typedText || "找失眠那页",
+        },
         {
           type: "done",
           transcription: body.typedText || "找失眠那页",
-          reply: "好，我去翻翻。",
+          reply: "",
           intent: "recall",
           recallQuery: "失眠",
         },
@@ -99,13 +83,6 @@ async function stubAskRecall(page: Page) {
       contentType: "application/json",
       body: JSON.stringify({ rankedIds: [], confidence: "low" }),
     });
-  });
-}
-
-async function waitForAppReady(page: Page) {
-  await page.goto("/", { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("button", { name: "设定" })).toBeEnabled({
-    timeout: 60_000,
   });
 }
 
@@ -123,8 +100,7 @@ async function typeAndSubmit(page: Page, text: string) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await unregisterServiceWorkers(page);
-  await blockEmbeddingNetwork(page);
+  await preparePage(page);
 });
 
 test("typed ask shows thinking then completes", async ({ page }) => {
@@ -167,34 +143,37 @@ test("recall path reaches recalling or miss state", async ({ page }) => {
   ).toBeVisible({ timeout: 45_000 });
 });
 
-test("settings validates empty api key and missing-key error opens settings", async ({
+test("settings opens billing entry; quota error opens billing", async ({
   page,
 }) => {
   await page.route("**/api/ask", async (route) => {
     await route.fulfill({
-      status: 500,
+      status: 402,
       contentType: "application/json",
       body: JSON.stringify({
-        error: "missing_api_key",
-        message: "MODEL_API_KEY is not configured",
+        error: "quota_exhausted",
+        message: "No replies left",
       }),
     });
   });
 
   await waitForAppReady(page);
 
-  await page.getByRole("button", { name: "设定" }).click();
-  await expect(page.getByRole("dialog", { name: "设定" })).toBeVisible();
-  await page.getByRole("button", { name: "测试连接" }).click();
-  await expect(page.getByText("请填写 API Key")).toBeVisible();
+  await page.getByRole("button", { name: "设置" }).click();
+  await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible();
+  await expect(page.getByText("会员与次数")).toBeVisible();
+  await page.getByRole("button", { name: "看看会员和剩余次数" }).click();
+  await expect(page.getByRole("dialog", { name: "会员与次数" })).toBeVisible();
 
-  await page.getByRole("button", { name: "关闭" }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "会员与次数" })).toHaveCount(0);
+
   await switchToTypeMode(page);
   await typeAndSubmit(page, "试一下");
 
-  await expect(page.getByRole("button", { name: "去设定" })).toBeVisible({
-    timeout: 20_000,
-  });
-  await page.getByRole("button", { name: "去设定" }).click();
-  await expect(page.getByRole("dialog", { name: "设定" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "补充次数，继续写" }),
+  ).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "补充次数，继续写" }).click();
+  await expect(page.getByRole("dialog", { name: "会员与次数" })).toBeVisible();
 });

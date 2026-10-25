@@ -25,6 +25,8 @@ export default defineConfig({
       ...process.env,
       SKIP_OPENNEXT_CLOUDFLARE_DEV: "1",
       AUTH_SECRET: process.env.AUTH_SECRET || "ci-e2e-auth-secret",
+      // Don't inherit a local/prod DATABASE_URL — missing tables hang hydrate and keep UI disabled.
+      DATABASE_URL: "",
     },
   },
 });
