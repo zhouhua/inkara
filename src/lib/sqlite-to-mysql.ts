@@ -6,7 +6,11 @@ export function translateSqliteToMysql(
   sql: string,
   nowIso: string = new Date().toISOString(),
 ): string {
-  let s = sql.replaceAll("datetime('now')", `'${nowIso}'`);
+  let s = sql.replace(
+    /datetime\('now',\s*'-(\d+)\s+days'\)/gi,
+    (_m, days: string) => `DATE_SUB('${nowIso}', INTERVAL ${days} DAY)`,
+  );
+  s = s.replaceAll("datetime('now')", `'${nowIso}'`);
   s = s.replace(/INSERT\s+OR\s+IGNORE\b/gi, "INSERT IGNORE");
   s = s.replace(
     /ON CONFLICT\s*\([^)]*\)\s*DO UPDATE SET\s+count\s*=\s*count\s*\+\s*1\s*WHERE\s+[\w.]+\s*<\s*\?/gi,

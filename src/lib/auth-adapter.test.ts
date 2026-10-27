@@ -6,6 +6,7 @@ type Row = Record<string, unknown>;
 
 function createFakeD1() {
   const users = new Map<string, Row>();
+  const accounts: Row[] = [];
   const tokens: Row[] = [];
 
   function prepare(sql: string): D1PreparedStatement {
@@ -16,6 +17,19 @@ function createFakeD1() {
         return stmt;
       },
       async first<T>() {
+        if (
+          sql.includes("FROM users u") &&
+          sql.includes("INNER JOIN accounts")
+        ) {
+          const [provider, providerAccountId] = binds;
+          const acc = accounts.find(
+            (a) =>
+              a.provider === provider &&
+              a.provider_account_id === providerAccountId,
+          );
+          if (!acc) return null;
+          return (users.get(String(acc.user_id)) as T) ?? null;
+        }
         if (sql.includes("FROM users WHERE email")) {
           const email = binds[0];
           for (const u of users.values()) {
@@ -37,23 +51,56 @@ function createFakeD1() {
       },
       async run() {
         if (sql.startsWith("INSERT INTO users")) {
-          const [id, email, name, email_verified, image] = binds as string[];
-          const existing = [...users.values()].find((u) => u.email === email);
-          if (existing && sql.includes("ON CONFLICT")) {
-            existing.name = name ?? existing.name;
-            existing.email_verified =
-              email_verified ?? existing.email_verified;
-            existing.image = image ?? existing.image;
-          } else {
-            users.set(id, {
+          if (sql.includes("VALUES (?, NULL,")) {
+            const [id, name, email_verified, image] = binds as (
+              string | null
+            )[];
+            users.set(String(id), {
               id,
-              email,
+              email: null,
+              phone: null,
               name,
               email_verified,
               image,
+              status: "active",
+              role: "user",
+              banned_at: null,
+              ban_reason: null,
               created_at: new Date().toISOString(),
             });
+          } else {
+            const [id, email, name, email_verified, image] = binds as string[];
+            const existing = [...users.values()].find((u) => u.email === email);
+            if (existing && sql.includes("ON CONFLICT")) {
+              existing.name = name ?? existing.name;
+              existing.email_verified =
+                email_verified ?? existing.email_verified;
+              existing.image = image ?? existing.image;
+            } else {
+              users.set(id, {
+                id,
+                email,
+                phone: null,
+                name,
+                email_verified,
+                image,
+                status: "active",
+                role: "user",
+                banned_at: null,
+                ban_reason: null,
+                created_at: new Date().toISOString(),
+              });
+            }
           }
+        }
+        if (sql.startsWith("INSERT INTO accounts")) {
+          accounts.push({
+            id: binds[0],
+            user_id: binds[1],
+            type: binds[2],
+            provider: binds[3],
+            provider_account_id: binds[4],
+          });
         }
         if (sql.startsWith("INSERT INTO verification_tokens")) {
           tokens.push({
@@ -69,7 +116,7 @@ function createFakeD1() {
           );
           if (i >= 0) tokens.splice(i, 1);
         }
-        if (sql.startsWith("UPDATE users")) {
+        if (sql.startsWith("UPDATE users SET")) {
           const id = binds[4] as string;
           const u = users.get(id);
           if (u) {
@@ -92,7 +139,7 @@ function createFakeD1() {
     prepare,
     batch: async () => [],
   };
-  return { db, users, tokens };
+  return { db, users, tokens, accounts };
 }
 
 describe("createInkAuthAdapter", () => {
@@ -122,5 +169,29 @@ describe("createInkAuthAdapter", () => {
     });
     expect(used?.token).toBe("tok");
     expect(tokens).toHaveLength(0);
+  });
+
+  it("creates email-less user and links OAuth account", async () => {
+    const { db, accounts } = createFakeD1();
+    const adapter = createInkAuthAdapter(db);
+    const user = await adapter.createUser!({
+      email: "",
+      emailVerified: null,
+      name: "wx",
+      image: null,
+    });
+    expect(user.id).toBeTruthy();
+    await adapter.linkAccount!({
+      userId: user.id,
+      type: "oauth",
+      provider: "wechat",
+      providerAccountId: "openid-1",
+    });
+    expect(accounts).toHaveLength(1);
+    const found = await adapter.getUserByAccount!({
+      provider: "wechat",
+      providerAccountId: "openid-1",
+    });
+    expect(found?.id).toBe(user.id);
   });
 });

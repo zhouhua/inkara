@@ -86,7 +86,13 @@ npx wrangler d1 migrations apply inkara --local
 npx wrangler d1 migrations apply inkara --remote
 ```
 
-邮箱魔法链接：打开 `/api/auth/signin`，提交邮箱后看终端日志中的 `[inkara:auth] Magic link`；生产配置 `AUTH_RESEND_KEY` 后才会真发信。登录用户写入 D1 `users` 表。
+登录：打开 `/login`（邮箱魔法链接 / 手机短信 OTP / 微信网站扫码）。未配置 Resend / 阿里云短信时，链接与验证码只打服务端日志。
+
+运营后台是独立应用 `apps/admin`（默认 `http://localhost:3001`），不是产品站子路由。`pnpm dev:admin` 启动；需配置 `DATABASE_URL`（或与产品相同的 DB）与 `ADMIN_EMAILS`，用管理员邮箱在后台 `/login` 登录。
+
+CI（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）会 typecheck + build admin。推到 `main` 且触及 admin/共享 lib/迁移时，[`.github/workflows/deploy-ecs-admin.yml`](.github/workflows/deploy-ecs-admin.yml) 会把后台独立包发到 ECS（也可手动 **Deploy ECS Admin**）。
+
+与产品共用同一份环境文件 `/etc/inkara.env`（同一数据库；admin 迁移只补新表）以及 `ECS_HOST` / `ECS_USER` / `ECS_SSH_KEY`。后台进程目录默认 `/opt/inkara-admin`，systemd `inkara-admin`，端口 `3001`；公网地址默认 [https://admin.inkara.zhouhua.site](https://admin.inkara.zhouhua.site)（systemd 覆盖 `AUTH_URL` / `NEXTAUTH_URL`，不改动产品的 `NEXT_PUBLIC_APP_URL`）。
 
 **支付（官方直连，无聚合）：**
 
@@ -146,7 +152,18 @@ GitHub 仓库密钥：
 | `ECS_ENV_FILE` | 可选，默认 `/etc/inkara.env`（在应用目录外，不会被同步删掉） |
 | `ECS_SERVICE`  | 可选，默认 `inkara`                                          |
 
-服务器上需要 Node 22、`sudo systemctl` 免密，以及 `/etc/inkara.env`（含 `DATABASE_URL` 和模型、登录相关变量）。发布先同步到临时目录，迁移成功后再替换 `/opt/inkara` 并重启；重启失败会退回上一版。第一次部署如果还没有 systemd 单元，流水线会写一份并 enable。
+运营后台额外密钥（均可选，有默认值）：
+
+| 密钥                   | 说明                                                          |
+| ---------------------- | ------------------------------------------------------------- |
+| `ECS_ADMIN_APP_DIR`    | 默认 `/opt/inkara-admin`                                      |
+| `ECS_ADMIN_SERVICE`    | 默认 `inkara-admin`                                           |
+| `ECS_ADMIN_APP_PORT`   | 默认 `3001`                                                   |
+| `ECS_ADMIN_PUBLIC_URL` | 默认 `https://admin.inkara.zhouhua.site`（systemd 覆盖 AUTH） |
+
+服务器上需要 Node 22、`sudo systemctl` 免密，以及**与产品共用**的 `/etc/inkara.env`（含 `DATABASE_URL`、`AUTH_SECRET`、`ADMIN_EMAILS`、模型与登录变量）。Admin 与产品连同一库，部署时跑 MySQL 迁移补新表；systemd drop-in 单独覆盖 `AUTH_URL`/`NEXTAUTH_URL`/`PORT`。若机器装了 nginx，会写入 `admin.inkara…` 反代到 `:3001`。发布失败会回滚上一版。
+
+**DNS：** Cloudflare 为 `admin.inkara.zhouhua.site` 增加与 `inkara.zhouhua.site` 相同目标的记录（建议橙云）。本地打包：`pnpm build:admin && pnpm pack:admin`。
 
 Cloudflare Worker 仍可用本机命令发布：`pnpm deploy:cloudflare`。
 

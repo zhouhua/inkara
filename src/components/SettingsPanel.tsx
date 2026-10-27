@@ -1,5 +1,6 @@
 "use client";
 
+import { signOut, useSession } from "next-auth/react";
 import { useEffect, useId, useState } from "react";
 import Xmark from "reicon-react/icons/Xmark";
 import GlideSelect from "@/components/GlideSelect";
@@ -42,6 +43,7 @@ export function SettingsPanel({
   onOpenBilling,
 }: Props) {
   const titleId = useId();
+  const { data: session } = useSession();
   const [summary, setSummary] = useState<BillingSummary | null>(null);
 
   useEffect(() => {
@@ -64,7 +66,11 @@ export function SettingsPanel({
 
   return (
     <>
-      <div className="settings-backdrop" onClick={onClose} role="presentation" />
+      <div
+        className="settings-backdrop"
+        onClick={onClose}
+        role="presentation"
+      />
       <aside
         className="settings-sheet"
         role="dialog"
@@ -108,9 +114,7 @@ export function SettingsPanel({
             menuWidth={160}
             ariaLabel={t(settings.locale, "submitMode")}
             value={settings.submitMode}
-            onChange={(value) =>
-              onPatch({ submitMode: value as SubmitMode })
-            }
+            onChange={(value) => onPatch({ submitMode: value as SubmitMode })}
             options={[
               { value: "manual", label: t(settings.locale, "submitManual") },
               { value: "auto", label: t(settings.locale, "submitAuto") },
@@ -142,6 +146,37 @@ export function SettingsPanel({
           value={settings.paperStyle}
           onChange={(paperStyle: PaperStyleId) => onPatch({ paperStyle })}
         />
+
+        <div className="settings-section">
+          <p className="settings-section-title">账号</p>
+          {session?.user ? (
+            <>
+              <p className="settings-section-hint">
+                {session.user.email ||
+                  session.user.phone ||
+                  session.user.name ||
+                  session.user.id}
+                {session.user.status === "banned" ? " · 已停用" : ""}
+              </p>
+              <button
+                type="button"
+                className="text-action"
+                onClick={() => void signOut({ callbackUrl: "/" })}
+              >
+                登出
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="settings-section-hint">
+                {t(settings.locale, "billingNeedLogin")}
+              </p>
+              <a className="text-action" href="/login">
+                {t(settings.locale, "billingSignIn")}
+              </a>
+            </>
+          )}
+        </div>
 
         <div className="settings-section">
           <p className="settings-section-title">

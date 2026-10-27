@@ -1,0 +1,137 @@
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1rem;
+  background:
+    radial-gradient(ellipse at 20% 0%, oklch(0.96 0.01 250), transparent 50%),
+    var(--paper, #faf9f6);
+}
+
+.login-card {
+  width: min(400px, 100%);
+  background: oklch(0.995 0.002 100);
+  border: 1px solid var(--hairline, #0002);
+  border-radius: 12px;
+  padding: 1.75rem 1.5rem;
+}
+
+.login-kicker {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--ink-faint, #888);
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+}
+
+.login-title {
+  margin: 0.35rem 0 0;
+  font-size: 1.35rem;
+  font-weight: 650;
+}
+
+.login-lead {
+  margin: 0.35rem 0 1.25rem;
+  color: var(--ink-soft, #555);
+  font-size: 0.9rem;
+}
+
+.login-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.login-tab {
+  border: 1px solid var(--hairline, #0002);
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.4rem;
+  font: inherit;
+  cursor: pointer;
+  color: var(--ink-soft, #555);
+}
+
+.login-tab.is-active {
+  background: var(--ink, #222);
+  color: #fff;
+  border-color: var(--ink, #222);
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.login-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--ink-soft, #555);
+}
+
+.login-input {
+  border: 1px solid var(--hairline, #0002);
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  font: inherit;
+  background: #fff;
+}
+
+.login-otp-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.login-otp-grow {
+  flex: 1;
+}
+
+.login-submit,
+.login-secondary,
+.login-link-btn {
+  border-radius: 6px;
+  padding: 0.55rem 0.85rem;
+  font: inherit;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+}
+
+.login-submit,
+.login-link-btn {
+  border: 1px solid var(--ink, #222);
+  background: var(--ink, #222);
+  color: #fff;
+}
+
+.login-secondary {
+  border: 1px solid var(--hairline, #0002);
+  background: transparent;
+  white-space: nowrap;
+}
+
+.login-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink-soft, #555);
+}
+
+.login-msg {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  color: var(--ink-soft, #555);
+}
+
+.login-foot {
+  margin: 1.25rem 0 0;
+  font-size: 0.85rem;
+}
+
+.login-foot a {
+  color: var(--ink, #222);
+}

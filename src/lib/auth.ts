@@ -1,10 +1,24 @@
 import NextAuth from "next-auth";
+import Credentials from "next-auth/providers/credentials";
 import Resend from "next-auth/providers/resend";
 import type { Adapter } from "@auth/core/adapters";
-import { createInkAuthAdapter } from "@/lib/auth-adapter";
+import {
+  createInkAuthAdapter,
+  getUserRow,
+  promoteAdminIfListed,
+  upsertUserByPhone,
+  type UserRow,
+} from "@/lib/auth-adapter";
 import { resolveServerDb } from "@/lib/db-server";
 import { t } from "@/lib/i18n";
+import { verifyLoginTicket } from "@/lib/login-ticket";
 import { requestLocale } from "@/lib/request-locale";
+import { normalizePhone, verifySmsOtp } from "@/lib/sms-otp";
+import {
+  parseAdminEmails,
+  type UserRole,
+  type UserStatus,
+} from "@/lib/user-fields";
 
 /**
  * Lazy D1 adapter: resolves Cloudflare env per call so NextAuth config stays sync.
@@ -46,15 +60,38 @@ async function emailHtml(url: string) {
   return `<p>${lead}</p><p><a href="${url}">${url}</a></p>`;
 }
 
+async function enrichTokenFromRow(
+  token: {
+    sub?: string;
+    email?: string | null;
+    role?: UserRole;
+    status?: UserStatus;
+    phone?: string | null;
+  },
+  row: UserRow,
+  db: NonNullable<Awaited<ReturnType<typeof resolveServerDb>>>,
+) {
+  const role = await promoteAdminIfListed(
+    db,
+    row.id,
+    row.email,
+    parseAdminEmails(process.env.ADMIN_EMAILS),
+  );
+  token.sub = row.id;
+  token.email = row.email;
+  token.phone = row.phone;
+  token.role = role;
+  token.status = row.status;
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   session: { strategy: "jwt" },
   pages: {
-    signIn: "/api/auth/signin",
+    signIn: "/login",
   },
   providers: [
     Resend({
-      // Placeholder allowed in local/dev when sendVerificationRequest only logs.
       apiKey: process.env.AUTH_RESEND_KEY ?? "re_dev_console_only",
       from: process.env.AUTH_EMAIL_FROM ?? "onboarding@resend.dev",
       async sendVerificationRequest({ identifier, url, provider }) {
@@ -79,24 +116,98 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
       },
     }),
+    Credentials({
+      id: "sms",
+      name: "SMS",
+      credentials: {
+        phone: { label: "Phone", type: "text" },
+        code: { label: "Code", type: "text" },
+      },
+      async authorize(credentials) {
+        const phoneRaw = String(credentials?.phone ?? "");
+        const code = String(credentials?.code ?? "");
+        const phone = normalizePhone(phoneRaw);
+        if (!phone || !/^\d{6}$/.test(code)) return null;
+        const db = await resolveServerDb();
+        if (!db) return null;
+        const verified = await verifySmsOtp(db, phone, code);
+        if (!verified.ok) return null;
+        const row = await upsertUserByPhone(db, phone);
+        if (row.status === "banned") return null;
+        return {
+          id: row.id,
+          email: row.email ?? undefined,
+          name: row.name,
+          image: row.image,
+        };
+      },
+    }),
+    Credentials({
+      id: "ticket",
+      name: "Ticket",
+      credentials: {
+        ticket: { label: "Ticket", type: "text" },
+      },
+      async authorize(credentials) {
+        const ticket = String(credentials?.ticket ?? "");
+        const userId = verifyLoginTicket(ticket);
+        if (!userId) return null;
+        const db = await resolveServerDb();
+        if (!db) return null;
+        const row = await getUserRow(db, userId);
+        if (!row || row.status === "banned") return null;
+        return {
+          id: row.id,
+          email: row.email ?? undefined,
+          name: row.name,
+          image: row.image,
+        };
+      },
+    }),
   ],
   adapter: lazyInkAuthAdapter(),
   callbacks: {
-    async jwt({ token, user }) {
-      if (user?.id) {
-        token.sub = user.id;
+    async signIn({ user }) {
+      if (!user?.id) return true;
+      const db = await resolveServerDb();
+      if (!db) return false;
+      const row = await getUserRow(db, user.id);
+      if (row?.status === "banned") return false;
+      return true;
+    },
+    async jwt({ token, user, trigger }) {
+      const db = await resolveServerDb();
+      if (user?.id && db) {
+        const row = await getUserRow(db, user.id);
+        if (row) await enrichTokenFromRow(token, row, db);
+        else {
+          token.sub = user.id;
+          if (user.email) token.email = user.email;
+          token.role = "user";
+          token.status = "active";
+        }
+        return token;
       }
-      if (user?.email) {
-        token.email = user.email;
+      if ((trigger === "update" || !token.role) && token.sub && db) {
+        const row = await getUserRow(db, token.sub);
+        if (row) await enrichTokenFromRow(token, row, db);
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.sub ?? "";
-        if (typeof token.email === "string") {
-          session.user.email = token.email;
-        }
+        const u = session.user as {
+          id: string;
+          email?: string | null;
+          phone?: string | null;
+          role: UserRole;
+          status: UserStatus;
+        };
+        u.id = token.sub ?? "";
+        u.email = typeof token.email === "string" ? token.email : null;
+        u.phone = typeof token.phone === "string" ? token.phone : null;
+        u.role = (token.role as UserRole) ?? "user";
+        u.status = (token.status as UserStatus) ?? "active";
       }
       return session;
     },

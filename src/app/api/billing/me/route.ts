@@ -27,6 +27,12 @@ export async function GET(req: Request) {
   const anon = readAnonSubject(req);
 
   if (session?.user?.id) {
+    if (session.user.status === "banned") {
+      return Response.json(
+        { error: "banned", message: "Account banned" },
+        { status: 403 },
+      );
+    }
     if (anon) {
       await mergeAnonDailyGrants(
         store,
@@ -51,6 +57,9 @@ export async function GET(req: Request) {
       anonymous: false,
       userId: session.user.id,
       email: session.user.email ?? null,
+      phone: session.user.phone ?? null,
+      role: session.user.role ?? "user",
+      status: session.user.status ?? "active",
       subscription: {
         active: balance.hasActiveSubscription,
         cancelAtPeriodEnd: Boolean(subRow?.cancel_at_period_end),

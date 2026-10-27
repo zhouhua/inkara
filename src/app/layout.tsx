@@ -5,6 +5,7 @@ import {
   Ma_Shan_Zheng,
   Noto_Sans_SC,
 } from "next/font/google";
+import { AuthSessionProvider } from "@/components/AuthSessionProvider";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 import { t } from "@/lib/i18n";
 import { requestLocale } from "@/lib/request-locale";
@@ -71,8 +72,10 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       className={`${uiLatin.variable} ${uiZh.variable} ${handZh.variable} ${handEn.variable} h-full antialiased`}
     >
       <body className="min-h-full">
-        {children}
-        <ServiceWorkerRegister />
+        <AuthSessionProvider>
+          {children}
+          <ServiceWorkerRegister />
+        </AuthSessionProvider>
       </body>
     </html>
   );

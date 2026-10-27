@@ -54,4 +54,14 @@ describe("translateSqliteToMysql", () => {
     );
     expect(sql).toContain("AS inkara_page_drop");
   });
+
+  it("rewrites relative datetime offsets", () => {
+    const sql = translateSqliteToMysql(
+      `SELECT 1 WHERE created_at >= datetime('now', '-7 days')`,
+      now,
+    );
+    expect(sql).toBe(
+      `SELECT 1 WHERE created_at >= DATE_SUB('${now}', INTERVAL 7 DAY)`,
+    );
+  });
 });

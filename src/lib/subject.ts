@@ -46,6 +46,15 @@ export async function resolveSubject(req: Request): Promise<SubjectResult> {
   const userId = session?.user?.id ?? null;
   const now = new Date();
 
+  if (session?.user?.status === "banned") {
+    return {
+      ok: false,
+      status: 403,
+      error: "banned",
+      message: "Account banned",
+    };
+  }
+
   if (userId && anon && userId !== anon) {
     const billing = createD1BillingStore(db);
     await mergeAnonDailyGrants(

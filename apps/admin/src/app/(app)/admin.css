@@ -1,0 +1,248 @@
+.admin-shell {
+  --admin-bg: #f4f5f7;
+  --admin-surface: #ffffff;
+  --admin-ink: #111827;
+  --admin-muted: #6b7280;
+  --admin-line: #e5e7eb;
+  --admin-accent: #111827;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  background: var(--admin-bg);
+  color: var(--admin-ink);
+  font-family: var(--font-ui), system-ui, sans-serif;
+}
+
+.admin-nav {
+  background: var(--admin-surface);
+  border-right: 1px solid var(--admin-line);
+  padding: 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.admin-brand-mark {
+  display: block;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.admin-brand-sub {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--admin-muted);
+  margin-top: 0.15rem;
+}
+
+.admin-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.admin-nav-link {
+  display: block;
+  padding: 0.5rem 0.65rem;
+  border-radius: 6px;
+  color: var(--admin-ink);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.admin-nav-link:hover {
+  background: var(--admin-bg);
+}
+
+.admin-nav-foot {
+  border-top: 1px solid var(--admin-line);
+  padding-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.admin-nav-user {
+  font-size: 0.75rem;
+  color: var(--admin-muted);
+  margin: 0;
+  word-break: break-all;
+}
+
+.admin-main {
+  padding: 1.75rem 2rem;
+  max-width: 1100px;
+}
+
+.admin-h1 {
+  font-size: 1.35rem;
+  font-weight: 650;
+  margin: 0 0 0.35rem;
+}
+
+.admin-lead {
+  margin: 0 0 1.5rem;
+  color: var(--admin-muted);
+  font-size: 0.9rem;
+}
+
+.admin-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.admin-card {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.admin-card-label {
+  font-size: 0.75rem;
+  color: var(--admin-muted);
+  margin: 0 0 0.35rem;
+}
+
+.admin-card-value {
+  font-size: 1.35rem;
+  font-weight: 650;
+  margin: 0;
+}
+
+.admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  align-items: center;
+}
+
+.admin-input,
+.admin-select,
+.admin-textarea {
+  border: 1px solid var(--admin-line);
+  border-radius: 6px;
+  padding: 0.45rem 0.65rem;
+  font: inherit;
+  background: var(--admin-surface);
+  color: var(--admin-ink);
+}
+
+.admin-btn {
+  border: 1px solid var(--admin-ink);
+  background: var(--admin-ink);
+  color: #fff;
+  border-radius: 6px;
+  padding: 0.45rem 0.85rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.admin-btn-ghost {
+  background: transparent;
+  color: var(--admin-ink);
+}
+
+.admin-table-wrap {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--admin-line);
+  vertical-align: top;
+}
+
+.admin-table th {
+  font-weight: 600;
+  color: var(--admin-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.admin-table a {
+  color: var(--admin-ink);
+}
+
+.admin-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  background: var(--admin-bg);
+  border: 1px solid var(--admin-line);
+}
+
+.admin-badge.is-danger {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.admin-panel {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-line);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.admin-panel h2 {
+  font-size: 0.95rem;
+  margin: 0 0 0.75rem;
+}
+
+.admin-muted {
+  color: var(--admin-muted);
+  font-size: 0.85rem;
+}
+
+.admin-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.75rem;
+  background: var(--admin-bg);
+  padding: 0.75rem;
+  border-radius: 6px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+@media (max-width: 800px) {
+  .admin-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .admin-nav-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .admin-nav-foot {
+    border-top: none;
+    padding-top: 0;
+    margin-left: auto;
+  }
+}

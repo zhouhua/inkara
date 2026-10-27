@@ -23,7 +23,12 @@
     "upload": "opennextjs-cloudflare build && node scripts/strip-cf-oversized-assets.mjs && opennextjs-cloudflare upload",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "stt-proxy": "wrangler dev -c workers/stt-proxy/wrangler.toml",
-    "prepare": "husky"
+    "prepare": "husky",
+    "dev:admin": "pnpm --filter @inkara/admin dev",
+    "build:admin": "pnpm --filter @inkara/admin build",
+    "typecheck:admin": "pnpm --filter @inkara/admin typecheck",
+    "pack:admin": "bash scripts/pack-standalone-admin.sh",
+    "deploy:admin": "bash scripts/deploy-ecs-admin.sh"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs}": [

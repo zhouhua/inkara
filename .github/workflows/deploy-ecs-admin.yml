@@ -1,0 +1,64 @@
+name: Deploy ECS Admin
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/admin/**"
+      - "src/lib/**"
+      - "src/components/AuthSessionProvider.tsx"
+      - "src/types/**"
+      - "migrations/mysql/**"
+      - "scripts/pack-standalone-admin.sh"
+      - "scripts/deploy-ecs-admin.sh"
+      - "scripts/apply-mysql-migrations.mjs"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/deploy-ecs-admin.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ecs-admin
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build admin standalone
+        env:
+          SKIP_OPENNEXT_CLOUDFLARE_DEV: "1"
+          AUTH_SECRET: "ci-build-placeholder"
+        run: pnpm build:admin
+
+      - name: Pack admin standalone bundle
+        run: bash scripts/pack-standalone-admin.sh
+
+      - name: Upload admin to ECS and restart
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+          ECS_SSH_KEY: ${{ secrets.ECS_SSH_KEY }}
+          ECS_PORT: ${{ secrets.ECS_PORT }}
+          # Same env file as product (DATABASE_URL / AUTH_SECRET / ADMIN_EMAILS).
+          ECS_ENV_FILE: ${{ secrets.ECS_ENV_FILE }}
+          ECS_ADMIN_APP_DIR: ${{ secrets.ECS_ADMIN_APP_DIR }}
+          ECS_ADMIN_SERVICE: ${{ secrets.ECS_ADMIN_SERVICE }}
+          ECS_ADMIN_APP_PORT: ${{ secrets.ECS_ADMIN_APP_PORT }}
+          ECS_ADMIN_PUBLIC_URL: ${{ secrets.ECS_ADMIN_PUBLIC_URL }}
+        run: bash scripts/deploy-ecs-admin.sh

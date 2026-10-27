@@ -36,6 +36,18 @@ jobs:
       - name: Unit & API tests
         run: pnpm test
 
+      - name: Typecheck product
+        run: pnpm typecheck
+
+      - name: Typecheck admin
+        run: pnpm typecheck:admin
+
+      - name: Build admin
+        env:
+          SKIP_OPENNEXT_CLOUDFLARE_DEV: "1"
+          AUTH_SECRET: "ci-build-placeholder"
+        run: pnpm build:admin
+
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 

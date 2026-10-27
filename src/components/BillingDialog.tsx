@@ -250,7 +250,7 @@ export function BillingDialog({ open, locale, onClose }: Props) {
 
   const onPick = (sku: SkuId) => {
     if (!loggedIn) {
-      window.location.assign("/api/auth/signin");
+      window.location.assign("/login");
       return;
     }
     void onBuy(sku);
@@ -298,9 +298,7 @@ export function BillingDialog({ open, locale, onClose }: Props) {
             </p>
           </div>
         ) : (
-          // Auth.js entry is an API route, not an App Router page.
-          // eslint-disable-next-line @next/next/no-html-link-for-pages -- /api/auth/signin
-          <a className="billing-slip is-login" href="/api/auth/signin">
+          <a className="billing-slip is-login" href="/login">
             <span className="billing-status">
               {t(locale, "billingNeedLogin")}
             </span>

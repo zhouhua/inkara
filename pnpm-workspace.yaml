@@ -1,5 +1,6 @@
 packages:
   - "."
+  - "apps/*"
   - "workers/*"
 
 # Allow native postinstall builds used by the toolchain.
