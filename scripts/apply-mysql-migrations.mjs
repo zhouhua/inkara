@@ -43,6 +43,10 @@ try {
     }
     const sql = fs.readFileSync(path.join(dir, file), "utf8");
     await conn.query(sql);
+    await conn.query(
+      "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+      [id, new Date().toISOString()],
+    );
     console.log(`applied ${id}`);
   }
 } finally {
