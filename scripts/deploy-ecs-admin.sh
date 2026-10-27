@@ -17,7 +17,9 @@ app_dir="${ECS_ADMIN_APP_DIR:-/opt/inkara-admin}"
 env_file="${ECS_ENV_FILE:-/etc/inkara.env}"
 service="${ECS_ADMIN_SERVICE:-inkara-admin}"
 app_port="${ECS_ADMIN_APP_PORT:-3001}"
-public_url="${ECS_ADMIN_PUBLIC_URL:-https://admin.inkara.zhouhua.site}"
+# One-level subdomain under the apex so Cloudflare Universal SSL covers it
+# (admin.inkara.zhouhua.site is multi-level and has no free edge cert).
+public_url="${ECS_ADMIN_PUBLIC_URL:-https://inkara-admin.zhouhua.site}"
 public_url="${public_url%/}"
 
 if [[ ! -f .deploy/admin-standalone/run.sh ]]; then
@@ -65,11 +67,9 @@ fi
 mv "$STAGE" "$APP_DIR"
 
 unit="/etc/systemd/system/${SERVICE}.service"
-drop_in_dir="/etc/systemd/system/${SERVICE}.service.d"
-node_bin="$(command -v node)"
-
-if [[ ! -f "$unit" ]]; then
-  sudo -n tee "$unit" >/dev/null <<UNIT
+# Always rewrite unit: shared /etc/inkara.env sets PORT=3000, and on this
+# host EnvironmentFile wins over Environment= — so force PORT/AUTH via env(1).
+sudo -n tee "$unit" >/dev/null <<UNIT
 [Unit]
 Description=inkara-admin
 After=network.target
@@ -80,60 +80,15 @@ WorkingDirectory=${APP_DIR}
 EnvironmentFile=${ENV_FILE}
 Environment=NODE_ENV=production
 Environment=HOSTNAME=0.0.0.0
-Environment=PORT=${APP_PORT}
-ExecStart=/bin/bash ${APP_DIR}/run.sh
+Environment=AUTH_TRUST_HOST=true
+ExecStart=/usr/bin/env PORT=${APP_PORT} AUTH_URL=${PUBLIC_URL} NEXTAUTH_URL=${PUBLIC_URL} /bin/bash ${APP_DIR}/run.sh
 Restart=on-failure
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 UNIT
-fi
-
-# Always refresh overrides so AUTH_URL points at the admin public host
-# (shared env still has product NEXT_PUBLIC_APP_URL).
-sudo -n mkdir -p "$drop_in_dir"
-sudo -n tee "$drop_in_dir/override.conf" >/dev/null <<UNIT
-[Service]
-Environment=PORT=${APP_PORT}
-Environment=AUTH_URL=${PUBLIC_URL}
-Environment=NEXTAUTH_URL=${PUBLIC_URL}
-Environment=AUTH_TRUST_HOST=true
-UNIT
-
-# Nginx (or Caddy-less) vhost → local admin port, if nginx is installed.
-if command -v nginx >/dev/null 2>&1; then
-  host="${PUBLIC_URL#https://}"
-  host="${host#http://}"
-  host="${host%%/*}"
-  conf="/etc/nginx/sites-available/inkara-admin.conf"
-  sudo -n tee "$conf" >/dev/null <<NGINX
-server {
-    listen 80;
-    listen [::]:80;
-    server_name ${host};
-
-    location / {
-        proxy_pass http://127.0.0.1:${APP_PORT};
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-NGINX
-  if [[ -d /etc/nginx/sites-enabled ]]; then
-    sudo -n ln -sfn "$conf" /etc/nginx/sites-enabled/inkara-admin.conf
-  fi
-  if sudo -n nginx -t; then
-    sudo -n systemctl reload nginx || sudo -n nginx -s reload || true
-  else
-    echo "nginx -t failed; left $conf in place" >&2
-  fi
-fi
-
+rm -rf "/etc/systemd/system/${SERVICE}.service.d"
 sudo -n systemctl daemon-reload
 sudo -n systemctl enable "$SERVICE" >/dev/null 2>&1 || true
 
@@ -147,5 +102,67 @@ if ! sudo -n systemctl restart "$SERVICE"; then
   exit 1
 fi
 sudo -n systemctl is-active "$SERVICE"
+
+# CentOS/RHEL nginx uses conf.d (no sites-available). Match product proxy style.
+if command -v nginx >/dev/null 2>&1 && [[ -d /etc/nginx/conf.d ]]; then
+  host="${PUBLIC_URL#https://}"
+  host="${host#http://}"
+  host="${host%%/*}"
+  conf="/etc/nginx/conf.d/inkara-admin.conf"
+  ssl_block=""
+  if [[ -f /etc/nginx/inkara.crt && -f /etc/nginx/inkara.key ]]; then
+    # Reuse product origin cert; Cloudflare Full (not Strict) tolerates CN mismatch.
+    ssl_block=$(cat <<SSL
+server {
+  listen 443 ssl;
+  listen [::]:443 ssl;
+  server_name ${host};
+  ssl_certificate /etc/nginx/inkara.crt;
+  ssl_certificate_key /etc/nginx/inkara.key;
+  client_max_body_size 20m;
+
+  location / {
+    proxy_pass http://127.0.0.1:${APP_PORT};
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_read_timeout 300s;
+  }
+}
+SSL
+)
+  fi
+  sudo -n tee "$conf" >/dev/null <<NGINX
+server {
+  listen 80;
+  listen [::]:80;
+  server_name ${host};
+  client_max_body_size 20m;
+
+  location / {
+    proxy_pass http://127.0.0.1:${APP_PORT};
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_read_timeout 300s;
+  }
+}
+${ssl_block}
+NGINX
+  if sudo -n nginx -t; then
+    sudo -n systemctl reload nginx || sudo -n nginx -s reload || true
+  else
+    echo "nginx -t failed; left $conf in place (admin service is already up)" >&2
+  fi
+fi
+
 echo "admin public URL: $PUBLIC_URL (AUTH_URL override; env file: $ENV_FILE)"
 EOF

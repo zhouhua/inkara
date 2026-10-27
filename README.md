@@ -92,7 +92,7 @@ npx wrangler d1 migrations apply inkara --remote
 
 CI（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）会 typecheck + build admin。推到 `main` 且触及 admin/共享 lib/迁移时，[`.github/workflows/deploy-ecs-admin.yml`](.github/workflows/deploy-ecs-admin.yml) 会把后台独立包发到 ECS（也可手动 **Deploy ECS Admin**）。
 
-与产品共用同一份环境文件 `/etc/inkara.env`（同一数据库；admin 迁移只补新表）以及 `ECS_HOST` / `ECS_USER` / `ECS_SSH_KEY`。后台进程目录默认 `/opt/inkara-admin`，systemd `inkara-admin`，端口 `3001`；公网地址默认 [https://admin.inkara.zhouhua.site](https://admin.inkara.zhouhua.site)（systemd 覆盖 `AUTH_URL` / `NEXTAUTH_URL`，不改动产品的 `NEXT_PUBLIC_APP_URL`）。
+与产品共用同一份环境文件 `/etc/inkara.env`（同一数据库；admin 迁移只补新表）以及 `ECS_HOST` / `ECS_USER` / `ECS_SSH_KEY`。后台进程目录默认 `/opt/inkara-admin`，systemd `inkara-admin`，端口 `3001`；公网地址默认 [https://inkara-admin.zhouhua.site](https://inkara-admin.zhouhua.site)（systemd 覆盖 `AUTH_URL` / `NEXTAUTH_URL`，不改动产品的 `NEXT_PUBLIC_APP_URL`）。
 
 **支付（官方直连，无聚合）：**
 
@@ -159,11 +159,11 @@ GitHub 仓库密钥：
 | `ECS_ADMIN_APP_DIR`    | 默认 `/opt/inkara-admin`                                      |
 | `ECS_ADMIN_SERVICE`    | 默认 `inkara-admin`                                           |
 | `ECS_ADMIN_APP_PORT`   | 默认 `3001`                                                   |
-| `ECS_ADMIN_PUBLIC_URL` | 默认 `https://admin.inkara.zhouhua.site`（systemd 覆盖 AUTH） |
+| `ECS_ADMIN_PUBLIC_URL` | 默认 `https://inkara-admin.zhouhua.site`（systemd 覆盖 AUTH） |
 
 服务器上需要 Node 22、`sudo systemctl` 免密，以及**与产品共用**的 `/etc/inkara.env`（含 `DATABASE_URL`、`AUTH_SECRET`、`ADMIN_EMAILS`、模型与登录变量）。Admin 与产品连同一库，部署时跑 MySQL 迁移补新表；systemd drop-in 单独覆盖 `AUTH_URL`/`NEXTAUTH_URL`/`PORT`。若机器装了 nginx，会写入 `admin.inkara…` 反代到 `:3001`。发布失败会回滚上一版。
 
-**DNS：** Cloudflare 为 `admin.inkara.zhouhua.site` 增加与 `inkara.zhouhua.site` 相同目标的记录（建议橙云）。本地打包：`pnpm build:admin && pnpm pack:admin`。
+**DNS：** Cloudflare 为 `inkara-admin` 增加与 `inkara` 相同目标的 A 记录（橙云）。用一级子域是为了吃到免费 Universal SSL；`admin.inkara.*` 这类多级子域没有边缘证书。本地打包：`pnpm build:admin && pnpm pack:admin`。
 
 Cloudflare Worker 仍可用本机命令发布：`pnpm deploy:cloudflare`。
 
