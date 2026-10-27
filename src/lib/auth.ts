@@ -1,9 +1,7 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Resend from "next-auth/providers/resend";
-import type { Adapter } from "@auth/core/adapters";
 import {
-  createInkAuthAdapter,
   getUserRow,
   promoteAdminIfListed,
   upsertUserByPhone,
@@ -11,6 +9,7 @@ import {
 } from "@/lib/auth-adapter";
 import { resolveServerDb } from "@/lib/db-server";
 import { t } from "@/lib/i18n";
+import { lazyInkAuthAdapter } from "@/lib/lazy-auth-adapter";
 import { verifyLoginTicket } from "@/lib/login-ticket";
 import { requestLocale } from "@/lib/request-locale";
 import { normalizePhone, verifySmsOtp } from "@/lib/sms-otp";
@@ -19,28 +18,6 @@ import {
   type UserRole,
   type UserStatus,
 } from "@/lib/user-fields";
-
-/**
- * Lazy D1 adapter: resolves Cloudflare env per call so NextAuth config stays sync.
- */
-function lazyInkAuthAdapter(): Adapter {
-  return new Proxy({} as Adapter, {
-    get(_target, prop) {
-      if (typeof prop === "symbol" || prop === "then") return undefined;
-      return async (...args: unknown[]) => {
-        const db = await resolveServerDb();
-        if (!db) throw new Error("Database unavailable");
-        const adapter = createInkAuthAdapter(db) as Record<
-          string,
-          ((...a: unknown[]) => unknown) | undefined
-        >;
-        const method = adapter[prop];
-        if (typeof method !== "function") return undefined;
-        return method(...args);
-      };
-    },
-  });
-}
 
 async function emailSubject() {
   try {
